@@ -34,4 +34,20 @@ return function(t)
    t.test("fault has priority over wifi and pump", function()
       t.assert_true(eq(indicator.color({ fault = true, wifi = false, pump = true }, true), { 255, 0, 0 }))
    end)
+
+   t.test("heartbeat boosts fault color even in blink-off phase", function()
+      local c = indicator.color({ fault = true }, false, true)
+      t.assert_true(eq(c, { 255, 0, 0 }))
+      t.assert_eq(c[4], 4)
+   end)
+
+   t.test("heartbeat boosts idle dim green", function()
+      local c = indicator.color({ wifi = true, pump = false }, false, true)
+      t.assert_true(eq(c, { 0, 28, 0 }))
+      t.assert_eq(c[4], 4)
+   end)
+
+   t.test("normal color has boost 1", function()
+      t.assert_eq(indicator.color({ wifi = true, pump = true }, false, false)[4], 1)
+   end)
 end

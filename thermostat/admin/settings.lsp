@@ -1,67 +1,67 @@
 <?lsp
-local user = request:user()
-if not user then
-   response:setstatus(403)
-   response:write([[
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Нужен вход</title>
-<link rel="stylesheet" href="static/style.css"></head><body><main><div class="card">
-<h1>Требуется авторизация</h1>
-<p>Настройки доступны только после входа в Xedge.</p>
-<p>Откройте <a href="/rtl/">Xedge IDE</a> и настройте Authentication, либо войдите в существующую учётную запись.</p>
-<p><a href="index.lsp">Назад к обзору</a></p>
-</div></main></body></html>
-]])
+if not app.pin_valid(request) then
+   response:sendredirect"/pin.lsp?next=/admin/settings.lsp"
    return
 end
 
 local message = nil
 local message_kind = "ok"
+local csrf_ok = true
 if "POST" == request:method() then
+   if not app.csrf_valid(request:data("csrf")) then
+      csrf_ok = false
+      message = "Запрос отклонён: неверный CSRF-токен"
+      message_kind = "error"
+   end
    local origin = request:header("Origin")
    local host = request:header("Host")
    if origin and host and not origin:find(host, 1, true) then
+      csrf_ok = false
       message = "Запрос отклонён: неверный Origin"
       message_kind = "error"
+   end
+end
+
+if "POST" == request:method() and csrf_ok then
+   local patch = {
+      control = {
+         target_room = tonumber(request:data("target_room")),
+         floor_limit = tonumber(request:data("floor_limit")),
+         room_hysteresis = tonumber(request:data("room_hysteresis")),
+         floor_hysteresis = tonumber(request:data("floor_hysteresis")),
+         min_on_sec = tonumber(request:data("min_on_sec")),
+         min_off_sec = tonumber(request:data("min_off_sec")),
+         frost_enabled = request:data("frost_enabled") and true or false,
+         frost_threshold = tonumber(request:data("frost_threshold")),
+      },
+      schedule = {
+         enabled = request:data("schedule_enabled") and true or false,
+         utc_offset_minutes = tonumber(request:data("utc_offset_minutes")),
+      },
+      mqtt = {
+         enabled = request:data("mqtt_enabled") and true or false,
+         host = request:data("mqtt_host") or "",
+         port = tonumber(request:data("mqtt_port")),
+         tls = request:data("mqtt_tls") and true or false,
+         username = request:data("mqtt_username") or "",
+         base_topic = request:data("mqtt_base_topic") or "",
+         ha_discovery = request:data("mqtt_ha") and true or false,
+      },
+      ui = {
+         public_setpoint = request:data("public_setpoint") and true or false,
+      },
+   }
+   local pwd = request:data("mqtt_password")
+   if pwd and "" ~= pwd and "***" ~= pwd then
+      patch.mqtt.password = pwd
+   end
+   local ok, result = app.update_config(patch)
+   if ok then
+      message = "Настройки сохранены"
+      message_kind = "ok"
    else
-      local patch = {
-         control = {
-            floor_limit = tonumber(request:data("floor_limit")),
-            room_hysteresis = tonumber(request:data("room_hysteresis")),
-            floor_hysteresis = tonumber(request:data("floor_hysteresis")),
-            min_on_sec = tonumber(request:data("min_on_sec")),
-            min_off_sec = tonumber(request:data("min_off_sec")),
-            frost_enabled = request:data("frost_enabled") and true or false,
-            frost_threshold = tonumber(request:data("frost_threshold")),
-         },
-         schedule = {
-            enabled = request:data("schedule_enabled") and true or false,
-            utc_offset_minutes = tonumber(request:data("utc_offset_minutes")),
-         },
-         mqtt = {
-            enabled = request:data("mqtt_enabled") and true or false,
-            host = request:data("mqtt_host") or "",
-            port = tonumber(request:data("mqtt_port")),
-            tls = request:data("mqtt_tls") and true or false,
-            username = request:data("mqtt_username") or "",
-            base_topic = request:data("mqtt_base_topic") or "",
-            ha_discovery = request:data("mqtt_ha") and true or false,
-         },
-         ui = {
-            public_setpoint = request:data("public_setpoint") and true or false,
-         },
-      }
-      local pwd = request:data("mqtt_password")
-      if pwd and "" ~= pwd and "***" ~= pwd then
-         patch.mqtt.password = pwd
-      end
-      local ok, result = app.update_config(patch)
-      if ok then
-         message = "Настройки сохранены"
-         message_kind = "ok"
-      else
-         message = "Ошибка: " .. tostring(result)
-         message_kind = "error"
-      end
+      message = "Ошибка: " .. tostring(result)
+      message_kind = "error"
    end
 end
 
@@ -78,20 +78,24 @@ local function checked(v) return v and "checked" or "" end
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Настройки — тёплый пол</title>
-<link rel="stylesheet" href="static/style.css">
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <main>
 <header>
-  <div><h1>Настройки</h1><p class="muted">Пользователь: <?lsp=user?></p></div>
-  <nav><a href="index.lsp">Обзор</a><a href="sensors.lsp">Датчики</a><a href="history.lsp">История</a></nav>
+  <div><h1>Настройки</h1><p class="muted">Доступ по PIN</p></div>
+  <nav><a href="/">Обзор</a><a href="/admin/sensors.lsp">Датчики</a><a href="/history.lsp">История</a><a href="/admin/pin.lsp">PIN</a><a href="/admin/lock.lsp">Заблокировать</a></nav>
 </header>
 
 <?lsp if message then ?><section class="banner <?lsp=message_kind?>"><?lsp=message?></section><?lsp end ?>
 
 <form method="post" class="card">
+  <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">
   <h2>Управление</h2>
   <div class="form-grid">
+    <label>Базовая температура в комнате, °C
+      <input name="target_room" type="number" min="5" max="35" step="0.5" value="<?lsp=c.target_room?>" required>
+    </label>
     <label>Предел температуры пола, °C
       <input name="floor_limit" type="number" min="10" max="45" step="0.5" value="<?lsp=c.floor_limit?>" required>
     </label>
@@ -158,7 +162,7 @@ local function checked(v) return v and "checked" or "" end
     <?lsp end ?>
     </tbody>
   </table>
-  <p><a href="sensors.lsp">Поиск и назначение ролей</a></p>
+  <p><a href="/admin/sensors.lsp">Поиск и назначение ролей</a></p>
 </div>
 </main>
 </body>

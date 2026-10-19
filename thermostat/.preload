@@ -9,10 +9,33 @@ local history_mod = require("modules.history")
 local mqtt_mod = require("modules.mqtt_bridge")
 local rgb_led = require("modules.rgb_led")
 local indicator = require("modules.indicator")
+local pin_mod = require("modules.pin")
 
 local cfg, loaded, load_err = config.load(io)
 if not loaded then
    trace("thermostat: config load:", tostring(load_err))
+end
+
+local pin_key
+if ba and ba.aeskey then
+   local ok, key = pcall(ba.aeskey, 32)
+   if ok then
+      pin_key = key
+   end
+end
+
+local csrf_key
+if ba and ba.aeskey then
+   local ok, key = pcall(ba.aeskey, 32)
+   if ok then
+      csrf_key = key
+   end
+end
+
+local pin_failures = {}
+
+local function pin_is_configured()
+   return cfg.security and cfg.security.pin_hash and "" ~= cfg.security.pin_hash
 end
 
 local ssr
@@ -45,6 +68,11 @@ local override = nil
 local manual_pump = false
 local manual_timer = nil
 local service_mode = false
+local scan_requested = false
+local scan_running = false
+local scan_started = 0
+local scan_result = nil
+local sensor_busy = false
 local wifi_connected = false
 local wifi_mode = nil
 local led_tick = 0
@@ -105,6 +133,9 @@ local function build_state()
       pump = state.pump,
       mode = state.mode,
       target = state.target,
+      base_target = cfg.control.target_room,
+      override_active = override ~= nil and override.expires ~= nil and override.expires > os.time(),
+      override_until = (override and override.expires and override.expires > os.time()) and override.expires or nil,
       floor_limit = cfg.control.floor_limit,
       room = avg_value(snapshot.rooms),
       floor = (#snapshot.floors > 0) and max_value(snapshot.floors) or nil,
@@ -122,6 +153,9 @@ local function build_state()
       mqtt_connected = mqtt_bridge and mqtt_bridge.connected or false,
       wifi = wifi_connected,
       wifi_mode = wifi_mode,
+      heartbeat = led_tick,
+      pin_configured = pin_is_configured(),
+      pin_available = pin_key ~= nil,
       service_mode = service_mode,
       last_reason = state.last_reason,
    }
@@ -143,22 +177,27 @@ local function apply_led()
       return
    end
    local blink_on = (math.floor(led_tick / 5) % 2) == 0
+   local heartbeat_on = (led_tick % 20) == 0
    local color = indicator.color({
       boot = os.time() < boot_until,
       fault = #state.faults > 0,
       service = service_mode,
       wifi = wifi_connected,
       pump = state.pump,
-   }, blink_on)
-   rgb:write(color[1], color[2], color[3])
+   }, blink_on, heartbeat_on)
+   rgb:write(color[1], color[2], color[3], color[4])
 end
 
 local function apply_control()
    local now = os.time()
    time_valid = now > 1600000000
    local override_target = nil
-   if override and override.expires and now < override.expires then
-      override_target = override.target
+   if override and override.expires then
+      if now < override.expires then
+         override_target = override.target
+      else
+         override = nil
+      end
    end
    local scheduled = time_valid and schedule.target_at(cfg.schedule, now) or nil
    local inputs = {
@@ -180,12 +219,32 @@ end
 
 local function sensor_loop()
    while true do
-      if not service_mode then
-         local ok, err = pcall(sensor_mgr.read_cycle, sensor_mgr)
-         if not ok then
-            trace("thermostat: sensor cycle:", err)
-         end
+      if not service_mode and not scan_requested and not scan_running then
+         -- Never wrap yielding RMT calls in pcall; Xedge32 rejects yields
+         -- across a C-call boundary.
+         sensor_busy = true
+         sensor_mgr:read_cycle()
+         sensor_busy = false
          snapshot = sensor_mgr:snapshot(os.time())
+      end
+      coroutine.yield(true)
+   end
+end
+
+local function scan_loop()
+   while true do
+      if scan_requested and not scan_running and not sensor_busy then
+         scan_requested = false
+         scan_running = true
+         scan_started = os.time()
+         service_mode = true
+         scan_result = nil
+         apply_control()
+         scan_result = sensor_mgr:scan_all()
+         scan_running = false
+         service_mode = false
+         snapshot = sensor_mgr:snapshot(os.time())
+         apply_control()
       end
       coroutine.yield(true)
    end
@@ -260,6 +319,10 @@ end
 local function sanitized_config()
    local out = config.merge(cfg, {})
    out.mqtt.password = (cfg.mqtt.password and "" ~= cfg.mqtt.password) and "***" or ""
+   out.security = {
+      pin_configured = pin_is_configured(),
+      session_minutes = cfg.security.session_minutes or 30,
+   }
    local list = {}
    for key, sensor in pairs(cfg.sensors or {}) do
       list[#list + 1] = {
@@ -282,12 +345,162 @@ function get_state()
    return build_state()
 end
 
+function pin_configured()
+   return pin_is_configured()
+end
+
+function pin_available()
+   return pin_key ~= nil and ba ~= nil and ba.crypto ~= nil and ba.crypto.PBKDF2 ~= nil
+end
+
+function pin_trusted(peer, server)
+   return pin_mod.is_trusted(peer, server)
+end
+
+function pin_check(pin)
+   return pin_mod.verify(pin, cfg.security)
+end
+
+function pin_set(pin)
+   if not pin_mod.validate(pin) then
+      return false, "PIN должен состоять из 4 цифр."
+   end
+   cfg.security = cfg.security or {}
+   local salt, err = pin_mod.random_salt()
+   if not salt then
+      return false, err
+   end
+   local hash
+   hash, err = pin_mod.hash(pin, salt, cfg.security.pin_iterations or 20000)
+   if not hash then
+      return false, err
+   end
+   cfg.security.pin_salt = salt
+   cfg.security.pin_hash = hash
+   cfg.security.pin_iterations = cfg.security.pin_iterations or 20000
+   local saved, save_err = config.save(io, cfg)
+   if not saved then
+      return false, save_err
+   end
+   pin_failures = {}
+   return true
+end
+
+function pin_clear()
+   cfg.security = cfg.security or {}
+   cfg.security.pin_salt = ""
+   cfg.security.pin_hash = ""
+   local saved, err = config.save(io, cfg)
+   if not saved then
+      return false, err
+   end
+   pin_failures = {}
+   return true
+end
+
+function pin_locked(ip)
+   local entry = pin_failures[ip]
+   if not entry then
+      return false
+   end
+   if entry.locked_until and os.time() < entry.locked_until then
+      return true, entry.locked_until - os.time()
+   end
+   if entry.locked_until then
+      pin_failures[ip] = nil
+   end
+   return false
+end
+
+function pin_fail(ip)
+   local entry = pin_failures[ip] or { count = 0 }
+   entry.count = entry.count + 1
+   if entry.count >= 5 then
+      entry.count = 0
+      entry.locked_until = os.time() + 300
+   end
+   pin_failures[ip] = entry
+end
+
+function pin_success(ip)
+   pin_failures[ip] = nil
+end
+
+function pin_session_seconds()
+   return (cfg.security.session_minutes or 30) * 60
+end
+
+function pin_token(request)
+   if not pin_key then
+      return nil
+   end
+   local ip = request:peername() or ""
+   local ok, token = pcall(function()
+      return ba.aesencode(pin_key, ba.json.encode({
+         exp = os.time() + pin_session_seconds(),
+         ip = ip,
+      }))
+   end)
+   return ok and token or nil
+end
+
+function pin_valid(request)
+   if not pin_is_configured() or not pin_key then
+      return false
+   end
+   local cookie = request:cookie("thermo_pin")
+   if not cookie then
+      return false
+   end
+   local ok, data = pcall(ba.aesdecode, pin_key, cookie:value())
+   if not ok or not data then
+      return false
+   end
+   local decoded, item = pcall(ba.json.decode, data)
+   if not decoded or "table" ~= type(item) or "number" ~= type(item.exp) then
+      return false
+   end
+   if item.exp <= os.time() then
+      return false
+   end
+   return item.ip == (request:peername() or "")
+end
+
+function csrf_token()
+   if not csrf_key then
+      return ""
+   end
+   local ok, token = pcall(function()
+      return ba.aesencode(csrf_key, ba.json.encode({
+         t = os.time(),
+         n = ba.rnd and ba.rnd(0, 0x7FFFFFFF) or os.time(),
+      }))
+   end)
+   return ok and token or ""
+end
+
+function csrf_valid(token)
+   if not csrf_key or not token or "" == token then
+      return false
+   end
+   local ok, data = pcall(ba.aesdecode, csrf_key, token)
+   if not ok or not data then
+      return false
+   end
+   local decoded, item = pcall(ba.json.decode, data)
+   if not decoded or "table" ~= type(item) or "number" ~= type(item.t) then
+      return false
+   end
+   local age = os.time() - item.t
+   return age >= 0 and age <= 3600
+end
+
 function get_config()
    return sanitized_config()
 end
 
 function get_scan_result()
-   return sensor_mgr.scan_result
+   return scan_result
 end
 
 function get_history(range_sec)
@@ -323,8 +536,6 @@ function set_target(temp, hours, force)
    last_set_target = now
    local duration = tonumber(hours) or 2
    override = schedule.set_override(temp, os.time() + duration * 3600)
-   cfg.control.target_room = temp
-   config.save(io, cfg)
    apply_control()
    return true, temp
 end
@@ -332,7 +543,7 @@ end
 function clear_override()
    override = nil
    apply_control()
-   return true
+   return true, state.target
 end
 
 function set_mode(mode)
@@ -367,13 +578,25 @@ function set_pump_test(on, seconds)
 end
 
 function scan_sensors()
+   if scan_running then
+      return { status = "running" }
+   end
+   if scan_requested then
+      return { status = "queued" }
+   end
+   scan_requested = true
+   scan_result = nil
    service_mode = true
    apply_control()
-   local result = sensor_mgr:scan_all()
-   service_mode = false
-   snapshot = sensor_mgr:snapshot(os.time())
-   apply_control()
-   return result
+   return { status = "queued" }
+end
+
+function scan_status()
+   return {
+      running = scan_running,
+      requested = scan_requested,
+      result = scan_result,
+   }
 end
 
 function assign_sensor(bus, rom, role, label, offset)
@@ -489,6 +712,9 @@ function onunload()
    if control_timer then
       control_timer:cancel()
    end
+   if scan_timer then
+      scan_timer:cancel()
+   end
    if history_timer then
       history_timer:cancel()
    end
@@ -520,6 +746,10 @@ if xedge and xedge.event then
       wifi_connected = (status == "up")
       apply_led()
    end)
+   xedge.event("error", function(msg)
+      ssr_write(false)
+      trace("thermostat: Lua error, pump off:", tostring(msg))
+   end)
 end
 
 load_history()
@@ -528,6 +758,12 @@ restart_mqtt()
 -- Xedge timers stop when the callback returns. Repeating work must yield.
 local function control_loop()
    while true do
+      if scan_running and (os.time() - scan_started) > 20 then
+         scan_running = false
+         scan_requested = false
+         service_mode = false
+         scan_result = { buses = {}, errors = { "Сканирование не завершилось за 20 секунд." } }
+      end
       apply_control()
       coroutine.yield(true)
    end
@@ -550,6 +786,9 @@ end
 
 sensor_timer = ba.timer(sensor_loop)
 sensor_timer:set(10000)
+
+scan_timer = ba.timer(scan_loop)
+scan_timer:set(500)
 
 control_timer = ba.timer(control_loop)
 control_timer:set(1000)

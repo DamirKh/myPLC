@@ -65,6 +65,12 @@ local DEFAULTS = {
       public_setpoint_min = 16.0,
       public_setpoint_max = 28.0,
    },
+   security = {
+      pin_salt = "",
+      pin_hash = "",
+      pin_iterations = 20000,
+      session_minutes = 30,
+   },
    sensors = {},
 }
 
@@ -224,6 +230,19 @@ function M.validate(cfg)
    end
    if c.fault_policy ~= "off" then
       errors[#errors + 1] = "only fault_policy=off is supported"
+   end
+
+   local sec = cfg.security or {}
+   if "string" ~= type(sec.pin_salt) or "string" ~= type(sec.pin_hash) then
+      errors[#errors + 1] = "security PIN fields must be strings"
+   elseif "" ~= sec.pin_hash and "" == sec.pin_salt then
+      errors[#errors + 1] = "pin_hash requires pin_salt"
+   end
+   if not is_number(sec.pin_iterations) or sec.pin_iterations < 1 or sec.pin_iterations > 1000000 then
+      errors[#errors + 1] = "pin_iterations out of range"
+   end
+   if not is_number(sec.session_minutes) or sec.session_minutes < 1 or sec.session_minutes > 1440 then
+      errors[#errors + 1] = "session_minutes out of range"
    end
 
    local seen = {}

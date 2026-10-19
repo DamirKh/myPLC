@@ -8,7 +8,8 @@ test:
 package:
 	rm -rf build
 	mkdir -p build
-	cd thermostat && zip -D -q -u -r -9 ../build/thermostat.zip .
+	cd thermostat && zip -D -q -u -r -9 ../build/thermostat.zip . \
+		-x 'config.json' 'history.jsonl' 'userdb.encrypted'
 	@echo "built build/thermostat.zip"
 
 clean:

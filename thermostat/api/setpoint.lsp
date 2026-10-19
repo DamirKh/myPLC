@@ -7,8 +7,16 @@ if "POST" ~= request:method() then
    return
 end
 if request:data("clear") then
-   local ok, err = app.clear_override()
-   response:write(ba.json.encode({ ok = ok, error = ok and nil or err }))
+   local ok, result = app.clear_override()
+   local err = nil
+   if not ok then
+      err = result
+   end
+   response:write(ba.json.encode({
+      ok = ok,
+      error = err,
+      target = ok and result or nil,
+   }))
    return
 end
 local target = tonumber(request:data("target"))

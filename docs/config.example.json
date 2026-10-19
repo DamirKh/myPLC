@@ -52,5 +52,11 @@
     "public_setpoint_min": 16.0,
     "public_setpoint_max": 28.0
   },
+  "security": {
+    "pin_salt": "",
+    "pin_hash": "",
+    "pin_iterations": 20000,
+    "session_minutes": 30
+  },
   "sensors": {}
 }

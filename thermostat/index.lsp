@@ -15,8 +15,8 @@
     </div>
     <nav>
       <a href="history.lsp">История</a>
-      <a href="settings.lsp">Настройки</a>
-      <a href="sensors.lsp">Датчики</a>
+      <a href="/admin/settings.lsp">Настройки</a>
+      <a href="/admin/sensors.lsp">Датчики</a>
     </nav>
   </header>
 
@@ -53,6 +53,7 @@
       <button id="clearOverride" type="button" class="secondary">Снять override</button>
     </form>
     <p id="setpointResult" class="muted"></p>
+    <p id="overrideInfo" class="muted"></p>
   </section>
 
   <section class="card">
@@ -87,9 +88,17 @@ async function refresh() {
     $('target').textContent = fmt(s.target).replace(' °C', '');
     $('floorLimit').textContent = fmt(s.floor_limit).replace(' °C', '');
     if (document.activeElement !== $('setpoint')) $('setpoint').value = s.target ?? '';
+    if (s.override_active && s.override_until) {
+      const until = new Date(s.override_until * 1000);
+      $('overrideInfo').textContent = 'Override действует до ' + until.toLocaleTimeString();
+    } else {
+      $('overrideInfo').textContent = 'Override не активен; базовая уставка ' + fmt(s.base_target);
+    }
     const banner = $('banner');
     const problems = [];
     if (!s.ready) problems.push('Конфигурация датчиков не завершена — насос заблокирован.');
+    if (s.pin_available === false) problems.push('Генератор ключей недоступен: вход по PIN отключён.');
+    if (s.pin_configured === false) problems.push('PIN не задан. Настройка: /setup.lsp');
     if (!s.time_valid) problems.push('Время не синхронизировано — расписание неактивно.');
     const faults = asArray(s.faults);
     const warnings = asArray(s.warnings);
@@ -116,6 +125,9 @@ async function refresh() {
     $('diagnostics').textContent = JSON.stringify({
       mode: s.mode, service_mode: s.service_mode, mqtt_enabled: s.mqtt_enabled,
       mqtt_connected: s.mqtt_connected, wifi: s.wifi, wifi_mode: s.wifi_mode,
+      heartbeat: s.heartbeat, pin_configured: s.pin_configured,
+      pin_available: s.pin_available, override_active: s.override_active,
+      override_until: s.override_until, base_target: s.base_target,
       time_valid: s.time_valid
     }, null, 2);
   } catch (e) {
@@ -133,16 +145,26 @@ $('setpointForm').addEventListener('submit', async e => {
     body: 'target=' + encodeURIComponent(target)
   });
   const data = await r.json();
-  $('setpointResult').textContent = data.ok ? 'Уставка принята' : ('Ошибка: ' + (data.error || ''));
+  $('setpointResult').textContent = data.ok
+    ? ('Уставка принята на 2 часа: ' + fmt(data.target))
+    : ('Ошибка: ' + (data.error || ''));
   refresh();
 });
 
 $('clearOverride').addEventListener('click', async () => {
-  await fetch('api/setpoint.lsp', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: 'clear=1'
-  });
+  try {
+    const r = await fetch('api/setpoint.lsp', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'clear=1'
+    });
+    const data = await r.json();
+    $('setpointResult').textContent = data.ok
+      ? ('Override снят, цель: ' + fmt(data.target))
+      : ('Ошибка: ' + (data.error || ''));
+  } catch (e) {
+    $('setpointResult').textContent = 'Ошибка: ' + e;
+  }
   refresh();
 });
 

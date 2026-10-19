@@ -113,7 +113,7 @@ function M:read_cycle()
                   if data then
                      self:set_ok(item, data, now)
                   else
-                     self:set_failure(item, read_err, now)
+                     self:set_failure(item, read_err or "read failed", now)
                   end
                end
             end
@@ -133,8 +133,8 @@ function M:scan_all()
       if not bus then
          result.errors[#result.errors + 1] = name .. ": " .. tostring(open_err)
       else
-         local roms = ds.search(bus)
          local entry = { name = name, roms = {} }
+         local roms = ds.search(bus)
          for _, rom in ipairs(roms) do
             local data, err = self:read_one(bus, rom)
             entry.roms[#entry.roms + 1] = {
