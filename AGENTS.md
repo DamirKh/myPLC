@@ -29,6 +29,8 @@ The ZIP must contain the contents of `thermostat/`, not the directory itself.
 - Module dependencies use `require("modules.<name>")`.
 - Keep public API functions on the `app` table through globals defined in
   `.preload`.
+- Xedge `ba.timer` callbacks stop when they return; repeating logic must be a
+  coroutine loop that calls `coroutine.yield(true)` on every iteration.
 - Do not add comments unless they explain a non-obvious safety invariant.
 
 ## Safety invariants

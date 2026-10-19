@@ -1,6 +1,9 @@
 local ds = require("modules.ds18b20")
+local onewire = require("modules.onewire_rmt")
 local M = {}
 M.__index = M
+
+local BUS_NAMES = { "diag", "control_a", "control_b" }
 
 local function sleep(ms)
    if ba and ba.sleep then
@@ -8,18 +11,25 @@ local function sleep(ms)
    end
 end
 
-function M.new(cfg, buses)
+function M.new(cfg)
    return setmetatable({
       cfg = cfg,
-      buses = buses or {},
       last = {},
       last_cycle = nil,
       scan_result = nil,
    }, M)
 end
 
-function M:bus(name)
-   return self.buses[name]
+function M:open_bus(name)
+   local pin = self.cfg.pins and self.cfg.pins[name]
+   if not pin then
+      return nil, "pin_missing"
+   end
+   local bus, err = onewire.new(pin)
+   if not bus then
+      return nil, err or "rmt_open_failed"
+   end
+   return bus
 end
 
 function M:read_one(bus, rom)
@@ -37,56 +47,77 @@ function M:read_one(bus, rom)
    return data
 end
 
+function M:set_ok(item, data, now)
+   local prev = self.last[item.key]
+   self.last[item.key] = {
+      ok = true,
+      temp = data.temp + (item.sensor.offset or 0),
+      raw = data.raw,
+      ts = now,
+      good_count = (prev and prev.good_count or 0) + 1,
+      fail_count = 0,
+   }
+end
+
+function M:set_failure(item, err, now)
+   local prev = self.last[item.key] or {}
+   self.last[item.key] = {
+      ok = false,
+      err = err,
+      ts = now,
+      temp = prev.temp,
+      good_count = 0,
+      fail_count = (prev.fail_count or 0) + 1,
+   }
+end
+
+local function group_by_bus(cfg)
+   local map = {}
+   for key, sensor in pairs(cfg.sensors or {}) do
+      local list = map[sensor.bus]
+      if not list then
+         list = {}
+         map[sensor.bus] = list
+      end
+      list[#list + 1] = { key = key, sensor = sensor }
+   end
+   return map
+end
+
 function M:read_cycle()
    local cfg = self.cfg
    local now = os.time()
-   local converted = {}
    local errors = {}
+   local map = group_by_bus(cfg)
 
-   for name, bus in pairs(self.buses) do
-      local ok, err = ds.start_convert(bus, nil)
-      if ok then
-         converted[#converted + 1] = name
-      else
-         errors[name] = err or "convert failed"
-      end
-   end
-
-   if #converted > 0 then
-      sleep(800)
-   end
-
-   for key, sensor in pairs(cfg.sensors or {}) do
-      local bus = self.buses[sensor.bus]
-      if not bus then
-         self.last[key] = {
-            ok = false,
-            err = "bus_missing",
-            ts = now,
-            temp = self.last[key] and self.last[key].temp,
-         }
-      else
-         local data, err = self:read_one(bus, sensor.rom)
-         if data then
-            local prev = self.last[key]
-            self.last[key] = {
-               ok = true,
-               temp = data.temp + (sensor.offset or 0),
-               raw = data.raw,
-               ts = now,
-               good_count = (prev and prev.good_count or 0) + 1,
-               fail_count = 0,
-            }
+   for _, name in ipairs(BUS_NAMES) do
+      local list = map[name]
+      if list and #list > 0 then
+         local bus, open_err = self:open_bus(name)
+         if not bus then
+            errors[name] = open_err
+            for _, item in ipairs(list) do
+               self:set_failure(item, open_err, now)
+            end
          else
-            local prev = self.last[key] or {}
-            self.last[key] = {
-               ok = false,
-               err = err,
-               ts = now,
-               temp = prev.temp,
-               good_count = 0,
-               fail_count = (prev.fail_count or 0) + 1,
-            }
+            local ok, convert_err = ds.start_convert(bus, nil)
+            if not ok then
+               errors[name] = convert_err or "convert_failed"
+               for _, item in ipairs(list) do
+                  self:set_failure(item, errors[name], now)
+               end
+            else
+               sleep(800)
+               for _, item in ipairs(list) do
+                  local data, read_err = self:read_one(bus, item.sensor.rom)
+                  if data then
+                     self:set_ok(item, data, now)
+                  else
+                     self:set_failure(item, read_err, now)
+                  end
+               end
+            end
+            bus:close()
          end
       end
    end
@@ -97,10 +128,10 @@ end
 
 function M:scan_all()
    local result = { buses = {}, errors = {} }
-   for _, name in ipairs({ "diag", "control_a", "control_b" }) do
-      local bus = self.buses[name]
+   for _, name in ipairs(BUS_NAMES) do
+      local bus, open_err = self:open_bus(name)
       if not bus then
-         result.errors[#result.errors + 1] = name .. ": bus_missing"
+         result.errors[#result.errors + 1] = name .. ": " .. tostring(open_err)
       else
          local roms = ds.search(bus)
          local entry = { name = name, roms = {} }
@@ -113,6 +144,7 @@ function M:scan_all()
             }
          end
          result.buses[#result.buses + 1] = entry
+         bus:close()
       end
    end
    self.scan_result = result

@@ -38,6 +38,9 @@ function Led:write(r, g, b)
    if not self.rmt then
       return
    end
+   if "table" == type(r) then
+      r, g, b = r[1], r[2], r[3]
+   end
    r, g, b = scale(r, self.brightness), scale(g, self.brightness), scale(b, self.brightness)
    if self.last and self.last[1] == g and self.last[2] == r and self.last[3] == b then
       return

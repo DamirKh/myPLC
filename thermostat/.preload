@@ -2,7 +2,6 @@ xedge.createloader(io)
 
 local config = require("modules.config")
 local ds = require("modules.ds18b20")
-local onewire_rmt = require("modules.onewire_rmt")
 local sensor_manager = require("modules.sensor_manager")
 local controller = require("modules.controller")
 local schedule = require("modules.schedule")
@@ -14,18 +13,6 @@ local indicator = require("modules.indicator")
 local cfg, loaded, load_err = config.load(io)
 if not loaded then
    trace("thermostat: config load:", tostring(load_err))
-end
-
-local buses = {}
-if onewire_rmt.available() then
-   for _, name in ipairs({ "diag", "control_a", "control_b" }) do
-      local bus, err = onewire_rmt.new(cfg.pins[name])
-      if bus then
-         buses[name] = bus
-      else
-         trace("thermostat: bus", name, err)
-      end
-   end
 end
 
 local ssr
@@ -50,7 +37,7 @@ if cfg.pins.rgb_enabled ~= false then
    end
 end
 
-local sensor_mgr = sensor_manager.new(cfg, buses)
+local sensor_mgr = sensor_manager.new(cfg)
 local state = controller.new(cfg, os.time())
 local hist = history_mod.new(math.floor(((cfg.history.ram_hours or 48) * 3600) / (cfg.history.sample_sec or 60)))
 local snapshot = sensor_mgr:snapshot(os.time())
@@ -156,14 +143,14 @@ local function apply_led()
       return
    end
    local blink_on = (math.floor(led_tick / 5) % 2) == 0
-   local r, g, b = indicator.color({
+   local color = indicator.color({
       boot = os.time() < boot_until,
       fault = #state.faults > 0,
       service = service_mode,
       wifi = wifi_connected,
       pump = state.pump,
    }, blink_on)
-   rgb:write(r, g, b)
+   rgb:write(color[1], color[2], color[3])
 end
 
 local function apply_control()
@@ -518,9 +505,6 @@ function onunload()
       rgb:off()
       rgb:close()
    end
-   for _, bus in pairs(buses) do
-      bus:close()
-   end
    if ssr then
       ssr:close()
    end
@@ -541,19 +525,39 @@ end
 load_history()
 restart_mqtt()
 
-sensor_timer = ba.timer(sensor_loop)
-sensor_timer:set(5000)
+-- Xedge timers stop when the callback returns. Repeating work must yield.
+local function control_loop()
+   while true do
+      apply_control()
+      coroutine.yield(true)
+   end
+end
 
-control_timer = ba.timer(apply_control)
+local function history_loop()
+   while true do
+      history_tick()
+      coroutine.yield(true)
+   end
+end
+
+local function led_loop()
+   while true do
+      led_tick = led_tick + 1
+      apply_led()
+      coroutine.yield(true)
+   end
+end
+
+sensor_timer = ba.timer(sensor_loop)
+sensor_timer:set(10000)
+
+control_timer = ba.timer(control_loop)
 control_timer:set(1000)
 
-history_timer = ba.timer(history_tick)
+history_timer = ba.timer(history_loop)
 history_timer:set((cfg.history.sample_sec or 60) * 1000)
 
-led_timer = ba.timer(function()
-   led_tick = led_tick + 1
-   apply_led()
-end)
+led_timer = ba.timer(led_loop)
 led_timer:set(100)
 
 apply_led()

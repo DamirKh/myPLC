@@ -3,7 +3,8 @@ local M = {}
 local Bus = {}
 Bus.__index = Bus
 
-local RESOLUTION = 1000000
+local RESOLUTION = 10000000
+local TICK = 10
 local DEFAULT_TIMEOUT_MS = 250
 
 function M.available()
@@ -118,7 +119,7 @@ end
 function Bus:reset()
    local symbols, err = self:transfer(
       { min = 2000, max = 480 * 2 * 1000, len = 64 },
-      { { 0, 480, 1, 70 } }
+      { { 0, 480 * TICK, 1, 70 * TICK } }
    )
    if not symbols then
       return nil, err
@@ -136,8 +137,8 @@ function Bus:write_byte_raw(value)
       {
          {
             false,
-            { 0, 60, 1, 2 },
-            { 0, 6, 1, 56 },
+            { 0, 60 * TICK, 1, 2 * TICK },
+            { 0, 6 * TICK, 1, 56 * TICK },
             { value & 0xFF },
          },
       }
@@ -174,7 +175,7 @@ function Bus:read_byte()
 end
 
 function Bus:write_bit(bit)
-   local symbol = bit and { 0, 6, 1, 64 } or { 0, 60, 1, 10 }
+   local symbol = bit and { 0, 6 * TICK, 1, 64 * TICK } or { 0, 60 * TICK, 1, 10 * TICK }
    local symbols, err = self:transfer(
       { min = 900, max = 120 * 1000, len = 8 },
       { symbol }
@@ -188,7 +189,7 @@ end
 function Bus:read_bit()
    local symbols, err = self:transfer(
       { min = 900, max = 120 * 1000, len = 8 },
-      { { 0, 6, 1, 64 } }
+      { { 0, 6 * TICK, 1, 64 * TICK } }
    )
    if not symbols then
       return nil, err

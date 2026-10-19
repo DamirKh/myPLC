@@ -26,6 +26,7 @@
 <script>
 const canvas = document.getElementById('chart');
 const ctx = canvas.getContext('2d');
+const asArray = v => Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
 let currentRange = 86400;
 
 function lineColor(name) {
@@ -43,7 +44,7 @@ function draw(items) {
     const y = 20 + i * (h - 40) / 4;
     ctx.beginPath(); ctx.moveTo(54, y); ctx.lineTo(w - 12, y); ctx.stroke();
   }
-  if (!items || items.length < 2) {
+  if (!Array.isArray(items) || items.length < 2) {
     ctx.fillStyle = '#5b667a';
     ctx.fillText('Нет данных', 20, 30);
     return;
@@ -87,7 +88,7 @@ async function load(range) {
   currentRange = range;
   const r = await fetch('api/history.lsp?range=' + range, {cache: 'no-store'});
   const data = await r.json();
-  draw(data.items || []);
+  draw(asArray(data.items));
 }
 
 document.querySelectorAll('button[data-range]').forEach(b => {

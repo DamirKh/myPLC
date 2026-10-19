@@ -71,6 +71,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const fmt = v => (v === null || v === undefined) ? '—' : Number(v).toFixed(1) + ' °C';
+const asArray = v => Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
 
 async function refresh() {
   try {
@@ -90,8 +91,10 @@ async function refresh() {
     const problems = [];
     if (!s.ready) problems.push('Конфигурация датчиков не завершена — насос заблокирован.');
     if (!s.time_valid) problems.push('Время не синхронизировано — расписание неактивно.');
-    if (s.faults && s.faults.length) problems.push('Авария: ' + s.faults.join(', '));
-    if (s.warnings && s.warnings.length) problems.push('Предупреждения: ' + s.warnings.join(', '));
+    const faults = asArray(s.faults);
+    const warnings = asArray(s.warnings);
+    if (faults.length) problems.push('Авария: ' + faults.join(', '));
+    if (warnings.length) problems.push('Предупреждения: ' + warnings.join(', '));
     if (problems.length) {
       banner.textContent = problems.join(' ');
       banner.classList.remove('hidden');
@@ -100,7 +103,7 @@ async function refresh() {
     }
     const tbody = $('sensors');
     tbody.textContent = '';
-    for (const x of (s.sensors || [])) {
+    for (const x of asArray(s.sensors)) {
       const tr = document.createElement('tr');
       const cells = [x.role, x.label || x.rom, x.bus, fmt(x.temp), x.ok ? 'OK' : (x.err || 'ошибка')];
       for (const c of cells) {
