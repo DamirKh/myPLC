@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "pins": {
+    "diag": 4,
+    "control_a": 5,
+    "control_b": 6,
+    "ssr": 7,
+    "ssr_active_high": true,
+    "rgb": 48,
+    "rgb_enabled": true,
+    "rgb_brightness": 0.25
+  },
+  "control": {
+    "target_room": 22.0,
+    "floor_limit": 28.0,
+    "room_hysteresis": 0.3,
+    "floor_hysteresis": 0.5,
+    "min_on_sec": 180,
+    "min_off_sec": 180,
+    "pump_exercise_hours": 24,
+    "pump_exercise_sec": 300,
+    "frost_enabled": false,
+    "frost_threshold": 5.0,
+    "stale_after_sec": 20,
+    "recovery_reads": 3,
+    "mismatch_warn": 2.0,
+    "fault_policy": "off"
+  },
+  "schedule": {
+    "enabled": false,
+    "utc_offset_minutes": 180,
+    "blocks": []
+  },
+  "mqtt": {
+    "enabled": false,
+    "host": "",
+    "port": 1883,
+    "tls": false,
+    "username": "",
+    "password": "",
+    "base_topic": "home/floor/thermostat",
+    "ha_discovery": false
+  },
+  "history": {
+    "sample_sec": 60,
+    "ram_hours": 48,
+    "flash_sample_sec": 300,
+    "max_bytes": 1048576
+  },
+  "ui": {
+    "public_setpoint": true,
+    "public_setpoint_min": 16.0,
+    "public_setpoint_max": 28.0
+  },
+  "sensors": {}
+}

@@ -1,0 +1,7 @@
+build/
+*.zip
+thermostat/config.json
+thermostat/history.jsonl
+thermostat/userdb.encrypted
+*.pem
+*.key

@@ -1,0 +1,561 @@
+xedge.createloader(io)
+
+local config = require("modules.config")
+local ds = require("modules.ds18b20")
+local onewire_rmt = require("modules.onewire_rmt")
+local sensor_manager = require("modules.sensor_manager")
+local controller = require("modules.controller")
+local schedule = require("modules.schedule")
+local history_mod = require("modules.history")
+local mqtt_mod = require("modules.mqtt_bridge")
+local rgb_led = require("modules.rgb_led")
+local indicator = require("modules.indicator")
+
+local cfg, loaded, load_err = config.load(io)
+if not loaded then
+   trace("thermostat: config load:", tostring(load_err))
+end
+
+local buses = {}
+if onewire_rmt.available() then
+   for _, name in ipairs({ "diag", "control_a", "control_b" }) do
+      local bus, err = onewire_rmt.new(cfg.pins[name])
+      if bus then
+         buses[name] = bus
+      else
+         trace("thermostat: bus", name, err)
+      end
+   end
+end
+
+local ssr
+local function ssr_write(on)
+   if not ssr then
+      return
+   end
+   local active_high = cfg.pins.ssr_active_high ~= false
+   ssr:value(active_high and on or not on)
+end
+
+if esp32 and esp32.gpio then
+   ssr = esp32.gpio(cfg.pins.ssr, "OUT")
+   ssr_write(false)
+end
+
+local rgb
+if cfg.pins.rgb_enabled ~= false then
+   rgb = rgb_led.new(cfg.pins.rgb, { brightness = cfg.pins.rgb_brightness })
+   if not rgb then
+      trace("thermostat: rgb led unavailable")
+   end
+end
+
+local sensor_mgr = sensor_manager.new(cfg, buses)
+local state = controller.new(cfg, os.time())
+local hist = history_mod.new(math.floor(((cfg.history.ram_hours or 48) * 3600) / (cfg.history.sample_sec or 60)))
+local snapshot = sensor_mgr:snapshot(os.time())
+local override = nil
+local manual_pump = false
+local manual_timer = nil
+local service_mode = false
+local wifi_connected = false
+local wifi_mode = nil
+local led_tick = 0
+local boot_until = os.time() + 2
+local time_valid = os.time() > 1600000000
+local mqtt_bridge = nil
+local last_mqtt_publish = 0
+local last_history_persist = 0
+local last_set_target = 0
+local history_pending = {}
+
+local function max_value(t)
+   local v = t[1]
+   for i = 2, #t do
+      if t[i] > v then
+         v = t[i]
+      end
+   end
+   return v
+end
+
+local function avg_value(t)
+   if #t == 0 then
+      return nil
+   end
+   local sum = 0
+   for _, v in ipairs(t) do
+      sum = sum + v
+   end
+   return sum / #t
+end
+
+local function role_temp(snap, role)
+   local values = {}
+   for _, item in ipairs(snap.diagnostics or {}) do
+      if item.ok and item.role == role then
+         values[#values + 1] = item.temp
+      end
+   end
+   return avg_value(values)
+end
+
+local function node_id()
+   if esp32 and esp32.mac then
+      local mac = esp32.mac()
+      return "xedge32_" .. (mac:gsub(".", function(c)
+         return string.format("%02x", string.byte(c))
+      end))
+   end
+   return "xedge32_thermostat"
+end
+
+local function build_state()
+   local ready = config.control_ready(cfg)
+   return {
+      ok = true,
+      ready = ready,
+      pump = state.pump,
+      mode = state.mode,
+      target = state.target,
+      floor_limit = cfg.control.floor_limit,
+      room = avg_value(snapshot.rooms),
+      floor = (#snapshot.floors > 0) and max_value(snapshot.floors) or nil,
+      supply = role_temp(snapshot, "supply"),
+      return_temp = role_temp(snapshot, "return"),
+      pump_temp = role_temp(snapshot, "pump"),
+      faults = state.faults,
+      warnings = state.warnings,
+      sensors = snapshot.diagnostics,
+      time = os.time(),
+      time_valid = time_valid,
+      schedule_enabled = cfg.schedule.enabled,
+      frost_enabled = cfg.control.frost_enabled,
+      mqtt_enabled = cfg.mqtt.enabled,
+      mqtt_connected = mqtt_bridge and mqtt_bridge.connected or false,
+      wifi = wifi_connected,
+      wifi_mode = wifi_mode,
+      service_mode = service_mode,
+      last_reason = state.last_reason,
+   }
+end
+
+local function publish_state_if_needed(force)
+   if not mqtt_bridge or not mqtt_bridge.connected then
+      return
+   end
+   local now = os.time()
+   if force or now - last_mqtt_publish >= 30 then
+      last_mqtt_publish = now
+      mqtt_bridge:publish_state(build_state())
+   end
+end
+
+local function apply_led()
+   if not rgb then
+      return
+   end
+   local blink_on = (math.floor(led_tick / 5) % 2) == 0
+   local r, g, b = indicator.color({
+      boot = os.time() < boot_until,
+      fault = #state.faults > 0,
+      service = service_mode,
+      wifi = wifi_connected,
+      pump = state.pump,
+   }, blink_on)
+   rgb:write(r, g, b)
+end
+
+local function apply_control()
+   local now = os.time()
+   time_valid = now > 1600000000
+   local override_target = nil
+   if override and override.expires and now < override.expires then
+      override_target = override.target
+   end
+   local scheduled = time_valid and schedule.target_at(cfg.schedule, now) or nil
+   local inputs = {
+      rooms = snapshot.rooms,
+      floors = snapshot.floors,
+      water = snapshot.water,
+      faults = snapshot.faults,
+      warnings = snapshot.warnings,
+      override_target = override_target,
+      schedule_target = scheduled,
+      mode = state.mode,
+      manual_pump = manual_pump,
+      force_off = service_mode,
+   }
+   state = controller.step(state, inputs, cfg, now)
+   ssr_write(state.pump)
+   publish_state_if_needed()
+end
+
+local function sensor_loop()
+   while true do
+      if not service_mode then
+         local ok, err = pcall(sensor_mgr.read_cycle, sensor_mgr)
+         if not ok then
+            trace("thermostat: sensor cycle:", err)
+         end
+         snapshot = sensor_mgr:snapshot(os.time())
+      end
+      coroutine.yield(true)
+   end
+end
+
+local function history_sample()
+   local s = build_state()
+   return {
+      t = s.time,
+      room = s.room,
+      floor = s.floor,
+      supply = s.supply,
+      return_temp = s.return_temp,
+      pump = s.pump,
+      target = s.target,
+   }
+end
+
+local function load_history()
+   local ok, rwfile = pcall(require, "rwfile")
+   if not ok then
+      return
+   end
+   local data = rwfile.file(io, "history.jsonl")
+   if not data then
+      return
+   end
+   for line in data:gmatch("[^\r\n]+") do
+      local item = history_mod.decode(line)
+      if item then
+         hist:add(item)
+      end
+   end
+end
+
+local function persist_history()
+   local ok, rwfile = pcall(require, "rwfile")
+   if not ok then
+      return
+   end
+   if 0 == #history_pending then
+      return
+   end
+   local old = rwfile.file(io, "history.jsonl") or ""
+   local add = table.concat(history_pending, "\n") .. "\n"
+   history_pending = {}
+   local data = old .. add
+   if #data > (cfg.history.max_bytes or 1048576) then
+      data = data:sub(-(cfg.history.max_bytes or 1048576))
+      local nl = data:find("\n")
+      if nl then
+         data = data:sub(nl + 1)
+      end
+   end
+   rwfile.file(io, "history.jsonl", data)
+end
+
+local function history_tick()
+   local sample = history_sample()
+   hist:add(sample)
+   local line = history_mod.encode(sample)
+   if line then
+      history_pending[#history_pending + 1] = line
+   end
+   local now = os.time()
+   if now - last_history_persist >= (cfg.history.flash_sample_sec or 300) then
+      last_history_persist = now
+      persist_history()
+   end
+end
+
+local function sanitized_config()
+   local out = config.merge(cfg, {})
+   out.mqtt.password = (cfg.mqtt.password and "" ~= cfg.mqtt.password) and "***" or ""
+   local list = {}
+   for key, sensor in pairs(cfg.sensors or {}) do
+      list[#list + 1] = {
+         key = key,
+         bus = sensor.bus,
+         rom = sensor.rom,
+         role = sensor.role,
+         label = sensor.label,
+         offset = sensor.offset,
+      }
+   end
+   table.sort(list, function(a, b)
+      return a.key < b.key
+   end)
+   out.sensor_list = list
+   return out
+end
+
+function get_state()
+   return build_state()
+end
+
+function get_config()
+   return sanitized_config()
+end
+
+function get_scan_result()
+   return sensor_mgr.scan_result
+end
+
+function get_history(range_sec)
+   local items = hist:list()
+   if range_sec then
+      local cutoff = os.time() - range_sec
+      local out = {}
+      for _, item in ipairs(items) do
+         if item.t and item.t >= cutoff then
+            out[#out + 1] = item
+         end
+      end
+      items = out
+   end
+   return hist:downsample(720)
+end
+
+function set_target(temp, hours, force)
+   if not force and not cfg.ui.public_setpoint then
+      return false, "public setpoint disabled"
+   end
+   temp = tonumber(temp)
+   if not temp then
+      return false, "invalid temperature"
+   end
+   if temp < cfg.ui.public_setpoint_min or temp > cfg.ui.public_setpoint_max then
+      return false, "temperature out of public range"
+   end
+   local now = os.time()
+   if now - last_set_target < 2 then
+      return false, "rate limited"
+   end
+   last_set_target = now
+   local duration = tonumber(hours) or 2
+   override = schedule.set_override(temp, os.time() + duration * 3600)
+   cfg.control.target_room = temp
+   config.save(io, cfg)
+   apply_control()
+   return true, temp
+end
+
+function clear_override()
+   override = nil
+   apply_control()
+   return true
+end
+
+function set_mode(mode)
+   if "auto" ~= mode and "off" ~= mode and "manual" ~= mode then
+      return false, "invalid mode"
+   end
+   state.mode = mode
+   if "manual" ~= mode then
+      manual_pump = false
+   end
+   apply_control()
+   return true, mode
+end
+
+function set_pump_test(on, seconds)
+   if manual_timer then
+      manual_timer:cancel()
+      manual_timer = nil
+   end
+   state.mode = "manual"
+   manual_pump = on and true or false
+   if seconds and tonumber(seconds) then
+      manual_timer = ba.timer(function()
+         manual_pump = false
+         state.mode = "auto"
+         apply_control()
+      end)
+      manual_timer:set(tonumber(seconds) * 1000, true)
+   end
+   apply_control()
+   return true, manual_pump
+end
+
+function scan_sensors()
+   service_mode = true
+   apply_control()
+   local result = sensor_mgr:scan_all()
+   service_mode = false
+   snapshot = sensor_mgr:snapshot(os.time())
+   apply_control()
+   return result
+end
+
+function assign_sensor(bus, rom, role, label, offset)
+   if not config.valid_role(role) then
+      return false, "invalid role"
+   end
+   if "diag" ~= bus and "control_a" ~= bus and "control_b" ~= bus then
+      return false, "invalid bus"
+   end
+   config.set_sensor(cfg, bus, rom, role, label, offset)
+   local ok, errors = config.validate(cfg)
+   if not ok then
+      return false, errors
+   end
+   local saved, err = config.save(io, cfg)
+   if not saved then
+      return false, err
+   end
+   sensor_mgr.cfg = cfg
+   return true
+end
+
+function remove_sensor(bus, rom)
+   config.remove_sensor(cfg, bus, rom)
+   local ok, errors = config.validate(cfg)
+   if not ok then
+      return false, errors
+   end
+   local saved, err = config.save(io, cfg)
+   if not saved then
+      return false, err
+   end
+   sensor_mgr.cfg = cfg
+   return true
+end
+
+local function restart_mqtt()
+   if mqtt_bridge then
+      mqtt_bridge:stop()
+      mqtt_bridge = nil
+   end
+   local base_topic = (cfg.mqtt.base_topic or "home/floor/thermostat") .. "/"
+   local bridge, err = mqtt_mod.new(cfg, {
+      on_connect = function(b)
+         b:publish_discovery(build_state(), node_id())
+         b:publish_state(build_state())
+      end,
+      on_command = function(topic, data)
+         if topic == base_topic .. "set/target" then
+            local value = "table" == type(data) and data.value or data
+            set_target(value, nil, true)
+         elseif topic == base_topic .. "set/mode" then
+            local value = "table" == type(data) and data.value or data
+            if "heat" == value then
+               set_mode("auto")
+            elseif "off" == value then
+               set_mode("off")
+            end
+         end
+      end,
+   })
+   if bridge then
+      mqtt_bridge = bridge
+      local ok, err = bridge:start()
+      if not ok then
+         trace("thermostat: mqtt:", tostring(err))
+      end
+   elseif err and "disabled" ~= err then
+      trace("thermostat: mqtt:", tostring(err))
+   end
+end
+
+function update_config(patch)
+   if "table" ~= type(patch) then
+      return false, "config must be a table"
+   end
+   if patch.mqtt and "***" == patch.mqtt.password then
+      patch.mqtt.password = cfg.mqtt.password
+   end
+   local merged = config.merge(cfg, patch)
+   local ok, errors = config.validate(merged)
+   if not ok then
+      return false, errors
+   end
+   cfg = merged
+   local saved, err = config.save(io, cfg)
+   if not saved then
+      return false, err
+   end
+   sensor_mgr.cfg = cfg
+   restart_mqtt()
+   apply_control()
+   return true, { restart_required = false }
+end
+
+function reload_config()
+   local newcfg, ok, err = config.load(io)
+   if not ok then
+      return false, err
+   end
+   cfg = newcfg
+   sensor_mgr.cfg = cfg
+   restart_mqtt()
+   apply_control()
+   return true
+end
+
+function onunload()
+   ssr_write(false)
+   if sensor_timer then
+      sensor_timer:cancel()
+   end
+   if control_timer then
+      control_timer:cancel()
+   end
+   if history_timer then
+      history_timer:cancel()
+   end
+   if led_timer then
+      led_timer:cancel()
+   end
+   if manual_timer then
+      manual_timer:cancel()
+   end
+   if mqtt_bridge then
+      mqtt_bridge:stop()
+   end
+   if rgb then
+      rgb:off()
+      rgb:close()
+   end
+   for _, bus in pairs(buses) do
+      bus:close()
+   end
+   if ssr then
+      ssr:close()
+   end
+end
+
+if xedge and xedge.event then
+   xedge.event("sntp", function()
+      time_valid = true
+      apply_control()
+   end)
+   xedge.event("wifi", function(status, mode)
+      wifi_mode = mode
+      wifi_connected = (status == "up")
+      apply_led()
+   end)
+end
+
+load_history()
+restart_mqtt()
+
+sensor_timer = ba.timer(sensor_loop)
+sensor_timer:set(5000)
+
+control_timer = ba.timer(apply_control)
+control_timer:set(1000)
+
+history_timer = ba.timer(history_tick)
+history_timer:set((cfg.history.sample_sec or 60) * 1000)
+
+led_timer = ba.timer(function()
+   led_tick = led_tick + 1
+   apply_led()
+end)
+led_timer:set(100)
+
+apply_led()
+
+trace("thermostat: started, control_ready=" .. tostring(config.control_ready(cfg)))
