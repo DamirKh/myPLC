@@ -1,5 +1,39 @@
 local M = {}
 
+function M.format_offset(minutes)
+   minutes = tonumber(minutes) or 0
+   local sign = minutes < 0 and "-" or "+"
+   local abs_minutes = math.abs(minutes)
+   return string.format("%s%02d:%02d", sign, math.floor(abs_minutes / 60), abs_minutes % 60)
+end
+
+function M.parse_offset(text)
+   local sign, hours, minutes = tostring(text or ""):match("^([+-])(%d%d):(%d%d)$")
+   if not sign then
+      return nil
+   end
+   hours, minutes = tonumber(hours), tonumber(minutes)
+   if not hours or not minutes or minutes % 30 ~= 0 then
+      return nil
+   end
+   if hours > 14 or (14 == hours and minutes > 0) then
+      return nil
+   end
+   local total = hours * 60 + minutes
+   if "-" == sign then
+      total = -total
+   end
+   if total < -720 or total > 840 then
+      return nil
+   end
+   return total
+end
+
+function M.round_offset(minutes)
+   minutes = tonumber(minutes) or 0
+   return math.max(-720, math.min(840, math.floor((minutes + 15) / 30) * 30))
+end
+
 function M.localtime(epoch, offset_minutes)
    return os.date("!*t", epoch + (offset_minutes or 0) * 60)
 end

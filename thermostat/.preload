@@ -147,6 +147,7 @@ local function build_state()
       sensors = snapshot.diagnostics,
       time = os.time(),
       time_valid = time_valid,
+      utc_offset_minutes = cfg.schedule.utc_offset_minutes or 0,
       schedule_enabled = cfg.schedule.enabled,
       frost_enabled = cfg.control.frost_enabled,
       mqtt_enabled = cfg.mqtt.enabled,
@@ -343,6 +344,18 @@ end
 
 function get_state()
    return build_state()
+end
+
+function format_utc_offset(minutes)
+   return schedule.format_offset(minutes)
+end
+
+function parse_utc_offset(text)
+   return schedule.parse_offset(text)
+end
+
+function rounded_utc_offset(minutes)
+   return schedule.round_offset(minutes)
 end
 
 function pin_configured()

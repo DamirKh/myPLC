@@ -22,6 +22,13 @@ if "POST" == request:method() then
    end
 end
 
+local utc_offset = app.parse_utc_offset(request:data("utc_offset"))
+if "POST" == request:method() and csrf_ok and not utc_offset then
+   csrf_ok = false
+   message = "Некорректное смещение UTC. Используйте формат +03:00 с шагом 30 минут."
+   message_kind = "error"
+end
+
 if "POST" == request:method() and csrf_ok then
    local patch = {
       control = {
@@ -36,7 +43,7 @@ if "POST" == request:method() and csrf_ok then
       },
       schedule = {
          enabled = request:data("schedule_enabled") and true or false,
-         utc_offset_minutes = tonumber(request:data("utc_offset_minutes")),
+         utc_offset_minutes = utc_offset,
       },
       mqtt = {
          enabled = request:data("mqtt_enabled") and true or false,
@@ -71,6 +78,19 @@ local s = cfg.schedule
 local m = cfg.mqtt
 local ui = cfg.ui
 local function checked(v) return v and "checked" or "" end
+
+local current_offset = app.rounded_utc_offset(s.utc_offset_minutes or 0)
+local offset_options = {}
+for offset = -720, 840, 30 do
+   local text = app.format_utc_offset(offset)
+   offset_options[#offset_options + 1] = string.format(
+      '<option value="%s"%s>%s</option>',
+      text,
+      offset == current_offset and " selected" or "",
+      text
+   )
+end
+local offset_options_html = table.concat(offset_options)
 ?>
 <!doctype html>
 <html lang="ru">
@@ -78,7 +98,8 @@ local function checked(v) return v and "checked" or "" end
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Настройки — тёплый пол</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
 <main>
@@ -121,10 +142,11 @@ local function checked(v) return v and "checked" or "" end
   <h2>Время и расписание</h2>
   <div class="form-grid">
     <label class="check"><input name="schedule_enabled" type="checkbox" <?lsp=checked(s.enabled)?>> Расписание включено</label>
-    <label>Смещение UTC, минуты
-      <input name="utc_offset_minutes" type="number" min="-720" max="840" step="15" value="<?lsp=s.utc_offset_minutes?>">
+    <label>Смещение UTC (часы:минуты)
+      <select name="utc_offset"><?lsp=offset_options_html?></select>
     </label>
   </div>
+  <p class="muted">Шаг смещения — 30 минут. Например, +03:00 или −05:30.</p>
   <p class="muted">Расписание редактируется на отдельной странице (следующий этап).</p>
 
   <h2>MQTT</h2>

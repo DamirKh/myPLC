@@ -257,3 +257,559 @@ canvas {
       font-size: 28px;
    }
 }
+
+/* ---- Compact / per-device view ---- */
+
+html[data-view="full"] .compact-only {
+   display: none !important;
+}
+
+html[data-view="compact"] .full-only {
+   display: none !important;
+}
+
+html[data-view="compact"] .compact-only {
+   display: block;
+}
+
+.icon-sprite {
+   position: absolute;
+   width: 0;
+   height: 0;
+   overflow: hidden;
+}
+
+.icon {
+   width: 1.15em;
+   height: 1.15em;
+   flex: none;
+   fill: none;
+   stroke: currentColor;
+   stroke-width: 2;
+   stroke-linecap: round;
+   stroke-linejoin: round;
+   vertical-align: -0.15em;
+}
+
+.header-actions {
+   display: flex;
+   align-items: center;
+   justify-content: flex-end;
+   gap: 12px;
+   flex-wrap: wrap;
+}
+
+.view-toggle {
+   background: #e2e8f0;
+   color: var(--text);
+   font-size: 14px;
+   padding: 8px 12px;
+}
+
+.tile .label {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+}
+
+.status-strip {
+   display: none;
+   flex-wrap: wrap;
+   gap: 8px;
+   margin-bottom: 12px;
+}
+
+.status-pill {
+   display: inline-flex;
+   align-items: center;
+   gap: 6px;
+   padding: 7px 10px;
+   border: 1px solid var(--border);
+   border-radius: 999px;
+   background: var(--surface);
+   color: var(--muted);
+   font-size: 13px;
+   line-height: 1;
+}
+
+.status-pill[hidden] {
+   display: none;
+}
+
+.status-pill.on {
+   color: var(--ok);
+   background: #f0fdf4;
+   border-color: #bbf7d0;
+}
+
+.status-pill.off {
+   color: var(--muted);
+}
+
+.status-pill.fault {
+   color: var(--error);
+   background: #fef2f2;
+   border-color: #fecaca;
+}
+
+.details-body {
+   display: block;
+}
+
+.details-card > summary {
+   cursor: pointer;
+   font-weight: 600;
+   color: var(--accent);
+   list-style: none;
+}
+
+.details-card > summary::-webkit-details-marker {
+   display: none;
+}
+
+.details-card > summary::after {
+   content: " ▾";
+   color: var(--muted);
+}
+
+.details-card[open] > summary::after {
+   content: " ▴";
+}
+
+html[data-view="full"] .details-card > summary {
+   display: none;
+}
+
+html[data-view="full"] .details-card > .details-body {
+   display: block !important;
+}
+
+.subcard + .subcard {
+   margin-top: 18px;
+   padding-top: 18px;
+   border-top: 1px solid var(--border);
+}
+
+.detail-row {
+   display: flex;
+   flex-wrap: wrap;
+   gap: 16px;
+   color: var(--muted);
+}
+
+.detail-row strong {
+   color: var(--text);
+}
+
+.table-wrap {
+   overflow-x: auto;
+}
+
+.compact-setpoint {
+   display: none;
+}
+
+.compact-editor {
+   display: none;
+   align-items: center;
+   justify-content: space-between;
+   gap: 12px;
+}
+
+.compact-target {
+   display: flex;
+   align-items: baseline;
+   justify-content: center;
+   gap: 4px;
+   flex: 1;
+   font-size: 32px;
+   font-weight: 700;
+}
+
+.compact-target .unit {
+   font-size: 18px;
+   font-weight: 400;
+   color: var(--muted);
+}
+
+.compact-target small {
+   display: block;
+   width: 100%;
+   text-align: center;
+   font-size: 12px;
+   font-weight: 400;
+   color: var(--muted);
+   margin-top: 2px;
+}
+
+.step-btn {
+   width: 52px;
+   height: 52px;
+   padding: 0;
+   border-radius: 16px;
+   font-size: 28px;
+   line-height: 1;
+}
+
+.compact-actions {
+   display: none;
+   align-items: center;
+   flex-wrap: wrap;
+   gap: 10px;
+   margin-top: 12px;
+}
+
+html[data-view="compact"] .status-strip {
+   display: flex;
+}
+
+html[data-view="compact"] .compact-setpoint {
+   display: block;
+}
+
+html[data-view="compact"] .compact-editor {
+   display: flex;
+}
+
+html[data-view="compact"] .compact-actions {
+   display: flex;
+}
+
+html[data-view="compact"] main {
+   padding: 12px 10px 40px;
+}
+
+html[data-view="compact"] header {
+   flex-direction: column;
+   align-items: stretch;
+   gap: 10px;
+   margin-bottom: 14px;
+}
+
+html[data-view="compact"] h1 {
+   font-size: 24px;
+}
+
+html[data-view="compact"] .header-actions {
+   flex-direction: column;
+   align-items: stretch;
+   gap: 8px;
+}
+
+html[data-view="compact"] nav {
+   gap: 6px;
+}
+
+html[data-view="compact"] nav a {
+   padding: 7px 10px;
+   font-size: 14px;
+}
+
+html[data-view="compact"] .grid {
+   grid-template-columns: repeat(2, minmax(0, 1fr));
+   gap: 10px;
+   margin-bottom: 10px;
+}
+
+html[data-view="compact"] .card {
+   padding: 14px;
+   border-radius: 14px;
+   margin-bottom: 10px;
+}
+
+html[data-view="compact"] .value {
+   font-size: 28px;
+}
+
+html[data-view="compact"] .banner {
+   padding: 10px 12px;
+   font-size: 14px;
+}
+
+html[data-view="compact"] .view-toggle {
+   align-self: flex-start;
+}
+
+html[data-view="compact"] .details-card {
+   padding: 14px;
+}
+
+html[data-view="compact"] .details-card[open] .details-body {
+   margin-top: 14px;
+}
+
+html[data-view="compact"] .step-btn {
+   min-width: 52px;
+   min-height: 52px;
+}
+
+@media (max-width: 640px) {
+   html[data-view="compact"] .details-card {
+      padding: 12px;
+   }
+
+   html[data-view="compact"] .status-pill {
+      font-size: 12px;
+   }
+}
+
+.grid .card {
+   margin-bottom: 0;
+}
+
+/* ---- PIN keypad ---- */
+
+.pin-page {
+   max-width: 380px;
+   margin: 40px auto;
+}
+
+.pin-display {
+   display: flex;
+   justify-content: center;
+   gap: 14px;
+   margin: 24px 0 22px;
+}
+
+.pin-dot {
+   width: 18px;
+   height: 18px;
+   border-radius: 50%;
+   border: 2px solid var(--border);
+   background: transparent;
+   transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.pin-dot.filled {
+   background: var(--accent);
+   border-color: var(--accent);
+}
+
+.pin-pad {
+   display: grid;
+   grid-template-columns: repeat(3, minmax(0, 1fr));
+   gap: 12px;
+}
+
+.pin-key {
+   width: 100%;
+   aspect-ratio: 1;
+   padding: 0;
+   border-radius: 50%;
+   background: #f1f5f9;
+   color: var(--text);
+   font-size: 24px;
+   font-weight: 600;
+   display: grid;
+   place-items: center;
+   touch-action: manipulation;
+   user-select: none;
+}
+
+.pin-key.action {
+   background: #e2e8f0;
+   color: var(--muted);
+   font-size: 20px;
+}
+
+.pin-key:active {
+   transform: scale(0.96);
+}
+
+.pin-key:disabled {
+   opacity: 0.35;
+   cursor: not-allowed;
+}
+
+.pin-submit {
+   width: 100%;
+   margin-top: 18px;
+   padding: 14px;
+   border-radius: 14px;
+   font-size: 18px;
+}
+
+.pin-submit:disabled {
+   opacity: 0.45;
+   cursor: not-allowed;
+}
+
+.pin-hint {
+   text-align: center;
+   font-size: 12px;
+   margin-top: 12px;
+}
+
+@media (max-width: 420px) {
+   .pin-page {
+      margin: 20px auto;
+      padding: 16px;
+   }
+
+   .pin-pad {
+      gap: 10px;
+   }
+
+   .pin-key {
+      font-size: 22px;
+   }
+
+   .pin-display {
+      gap: 12px;
+   }
+}
+
+/* ---- LCD clock ---- */
+
+.clock-card {
+   display: flex;
+   align-items: center;
+   flex-wrap: wrap;
+   gap: 16px;
+}
+
+.clock-label {
+   font-size: 13px;
+   text-transform: uppercase;
+   letter-spacing: 0.06em;
+}
+
+.lcd-clock {
+   --lcd-w: 38px;
+   --lcd-h: 64px;
+   display: inline-flex;
+   align-items: center;
+   gap: 8px;
+   padding: 10px 14px;
+   border: 1px solid #1f513b;
+   border-radius: 14px;
+   background: #07160f;
+   box-shadow:
+      inset 0 0 18px rgba(99, 245, 166, 0.08),
+      0 8px 24px rgba(2, 10, 6, 0.2);
+}
+
+.lcd-digit {
+   position: relative;
+   width: var(--lcd-w);
+   height: var(--lcd-h);
+}
+
+.lcd-seg {
+   position: absolute;
+   background: #113025;
+   border-radius: 3px;
+   transition: background-color 0.08s linear, box-shadow 0.08s linear;
+}
+
+.lcd-seg.on {
+   background: #63f5a6;
+   box-shadow: 0 0 9px rgba(99, 245, 166, 0.8);
+}
+
+.seg-a {
+   left: 16%;
+   top: 0;
+   width: 68%;
+   height: 9%;
+}
+
+.seg-b {
+   right: 0;
+   top: 11%;
+   width: 9%;
+   height: 37%;
+}
+
+.seg-c {
+   right: 0;
+   bottom: 11%;
+   width: 9%;
+   height: 37%;
+}
+
+.seg-d {
+   left: 16%;
+   bottom: 0;
+   width: 68%;
+   height: 9%;
+}
+
+.seg-e {
+   left: 0;
+   bottom: 11%;
+   width: 9%;
+   height: 37%;
+}
+
+.seg-f {
+   left: 0;
+   top: 11%;
+   width: 9%;
+   height: 37%;
+}
+
+.seg-g {
+   left: 16%;
+   top: 45.5%;
+   width: 68%;
+   height: 9%;
+}
+
+.lcd-colon {
+   display: flex;
+   flex-direction: column;
+   gap: 12px;
+   padding: 0 2px;
+   animation: lcdBlink 1s steps(1, end) infinite;
+}
+
+.lcd-colon span {
+   width: 7px;
+   height: 7px;
+   border-radius: 50%;
+   background: #63f5a6;
+   box-shadow: 0 0 8px rgba(99, 245, 166, 0.7);
+}
+
+.lcd-clock.invalid {
+   opacity: 0.55;
+}
+
+.lcd-clock.invalid .lcd-colon {
+   animation: none;
+   opacity: 0.2;
+}
+
+@keyframes lcdBlink {
+   0%, 49% {
+      opacity: 1;
+   }
+
+   50%, 100% {
+      opacity: 0.18;
+   }
+}
+
+html[data-view="compact"] .clock-card {
+   justify-content: center;
+   padding: 12px;
+}
+
+@media (min-width: 900px) {
+   .lcd-clock {
+      --lcd-w: 46px;
+      --lcd-h: 78px;
+   }
+
+   .lcd-colon span {
+      width: 9px;
+      height: 9px;
+   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+   .lcd-colon {
+      animation: none;
+   }
+}

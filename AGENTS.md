@@ -31,6 +31,8 @@ The ZIP must contain the contents of `thermostat/`, not the directory itself.
   `.preload`.
 - Xedge `ba.timer` callbacks stop when they return; repeating logic must be a
   coroutine loop that calls `coroutine.yield(true)` on every iteration.
+- The application must run without internet access: no CDNs, external fonts,
+  remote scripts, or required cloud calls. Keep all runtime assets on board.
 - Do not add comments unless they explain a non-obvious safety invariant.
 
 ## Safety invariants

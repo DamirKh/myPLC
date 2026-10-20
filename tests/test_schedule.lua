@@ -45,6 +45,28 @@ return function(t)
       t.assert_eq(schedule.target_at(s, 30 * 3600), nil)
    end)
 
+   t.test("UTC offset formats as hours and minutes", function()
+      t.assert_eq(schedule.format_offset(180), "+03:00")
+      t.assert_eq(schedule.format_offset(-330), "-05:30")
+      t.assert_eq(schedule.format_offset(0), "+00:00")
+   end)
+
+   t.test("UTC offset parses 30-minute steps", function()
+      t.assert_eq(schedule.parse_offset("+03:00"), 180)
+      t.assert_eq(schedule.parse_offset("-05:30"), -330)
+      t.assert_eq(schedule.parse_offset("+14:00"), 840)
+      t.assert_eq(schedule.parse_offset("-12:00"), -720)
+      t.assert_eq(schedule.parse_offset("+03:15"), nil)
+      t.assert_eq(schedule.parse_offset("+15:00"), nil)
+      t.assert_eq(schedule.parse_offset("3:00"), nil)
+   end)
+
+   t.test("UTC offset rounds to 30 minutes", function()
+      t.assert_eq(schedule.round_offset(190), 180)
+      t.assert_eq(schedule.round_offset(200), 210)
+      t.assert_eq(schedule.round_offset(-40), -30)
+   end)
+
    t.test("override has priority while active", function()
       local s = thursday_schedule()
       local override = { target = 25, expires = 12 * 3600 + 600 }

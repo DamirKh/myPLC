@@ -46,7 +46,8 @@ end
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PIN — тёплый пол</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
 <main>
