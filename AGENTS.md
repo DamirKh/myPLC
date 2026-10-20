@@ -47,10 +47,11 @@ The ZIP must contain the contents of `thermostat/`, not the directory itself.
 - SSR output is active-high by default; the hardware must have a pull-down so
   reset/boot means pump OFF.
 - Keep the LED slot timer independent from sensor and control loops. Active slots
-  are shown in order red (fault), blue (no Wi-Fi), yellow (service), green (pump,
-  always present); each slot lasts 1.2 s with a 0.4 s off gap. A frozen slot
-  sequence is the visual hang indicator.
-- Never store MQTT passwords or Wi-Fi credentials in git.
+  are shown in order red (fault), blue (STA down), purple (AP without a recent
+  web client), yellow (service), green (pump, always present); each slot lasts
+  1.2 s with a 0.4 s off gap. A frozen slot sequence is the visual hang indicator.
+- Never store MQTT passwords or Wi-Fi credentials in git. Wi-Fi credentials are
+  device-only; the password must stay encrypted with a softTPM-derived key.
 - Admin pages and admin mutations stay under `/admin/` behind the 4-digit PIN
   session; public pages must not expose configuration changes.
 - Do not weaken the public/protected split without updating `docs/decisions.md`.

@@ -42,6 +42,29 @@ return function(t)
       t.assert_true(eq(indicator.frame(state, SLOT + GAP), { 0, 255, 0 }))
    end)
 
+   t.test("STA mode without connection shows blue", function()
+      local state = { wifi_mode = "sta", wifi_sta_connected = false, pump = false }
+      t.assert_true(eq(indicator.frame(state, 0), { 0, 0, 255 }))
+   end)
+
+   t.test("AP warning order is fault, purple, service, pump", function()
+      local state = {
+         wifi_mode = "ap", wifi_sta_connected = false, wifi_ap_client_active = false,
+         pump = true, fault = true, service = true,
+      }
+      local width = SLOT + GAP
+      t.assert_true(eq(indicator.frame(state, 0), { 255, 0, 0 }))
+      t.assert_true(eq(indicator.frame(state, width), { 255, 0, 255 }))
+      t.assert_true(eq(indicator.frame(state, 2 * width), { 255, 180, 0 }))
+      t.assert_true(eq(indicator.frame(state, 3 * width), { 0, 255, 0 }))
+   end)
+
+   t.test("AP with an active web client has no purple slot", function()
+      local state = { wifi_mode = "ap", wifi_ap_client_active = true, pump = true }
+      t.assert_true(eq(indicator.frame(state, 0), { 0, 255, 0 }))
+      t.assert_true(eq(indicator.frame(state, SLOT + GAP), { 0, 255, 0 }))
+   end)
+
    t.test("service slot is followed by pump slot", function()
       local state = { wifi = true, pump = false, service = true }
       t.assert_true(eq(indicator.frame(state, 0), { 255, 180, 0 }))

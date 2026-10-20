@@ -41,6 +41,12 @@
     "base_topic": "home/floor/thermostat",
     "ha_discovery": false
   },
+  "wifi": {
+    "mode": "auto",
+    "sta_ssid": "",
+    "sta_password_enc": "",
+    "connect_timeout_sec": 60
+  },
   "history": {
     "sample_sec": 60,
     "ram_hours": 48,

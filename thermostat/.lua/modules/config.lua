@@ -44,6 +44,12 @@ local DEFAULTS = {
       utc_offset_minutes = 180,
       blocks = {},
    },
+   wifi = {
+      mode = "auto",
+      sta_ssid = "",
+      sta_password_enc = "",
+      connect_timeout_sec = 60,
+   },
    mqtt = {
       enabled = false,
       host = "",
@@ -281,6 +287,20 @@ function M.validate(cfg)
    end
    if mqtt.enabled and not M.valid_mqtt_host(mqtt.host) then
       errors[#errors + 1] = "mqtt.host is invalid"
+   end
+
+   local wifi = cfg.wifi or {}
+   if "auto" ~= wifi.mode and "sta" ~= wifi.mode and "ap" ~= wifi.mode then
+      errors[#errors + 1] = "wifi.mode is invalid"
+   end
+   if "string" ~= type(wifi.sta_ssid) or "string" ~= type(wifi.sta_password_enc) then
+      errors[#errors + 1] = "wifi credentials must be strings"
+   end
+   if not is_number(wifi.connect_timeout_sec) or wifi.connect_timeout_sec < 10 or wifi.connect_timeout_sec > 600 then
+      errors[#errors + 1] = "wifi.connect_timeout_sec out of range"
+   end
+   if "sta" == wifi.mode and ("" == wifi.sta_ssid or "" == wifi.sta_password_enc) then
+      errors[#errors + 1] = "wifi.sta credentials are required in sta mode"
    end
 
    local ui = cfg.ui or {}

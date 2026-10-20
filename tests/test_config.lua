@@ -45,6 +45,25 @@ return function(t)
       t.assert_eq(merged.control.target_room, 22.0)
    end)
 
+   t.test("WiFi mode and credentials are validated", function()
+      local cfg = config.defaults()
+      local ok = config.validate(cfg)
+      t.assert_true(ok)
+
+      cfg.wifi.mode = "sta"
+      ok = config.validate(cfg)
+      t.assert_false(ok)
+
+      cfg.wifi.sta_ssid = "gft"
+      cfg.wifi.sta_password_enc = "encrypted"
+      ok = config.validate(cfg)
+      t.assert_true(ok)
+
+      cfg.wifi.mode = "bogus"
+      ok = config.validate(cfg)
+      t.assert_false(ok)
+   end)
+
    t.test("MQTT host validation accepts addresses and names", function()
       t.assert_true(config.valid_mqtt_host("192.168.43.202"))
       t.assert_true(config.valid_mqtt_host("localhost"))

@@ -12,7 +12,7 @@
 <main>
 <header>
   <div><h1>История</h1><p class="muted">Температуры за выбранный период</p></div>
-  <nav><a href="/">Обзор</a><a href="/admin/settings.lsp">Настройки</a><a href="/admin/sensors.lsp">Датчики</a></nav>
+  <nav><a href="/">Обзор</a><a href="/admin/settings.lsp">Настройки</a><a href="/admin/sensors.lsp">Датчики</a><a href="/admin/wifi.lsp">Wi-Fi</a></nav>
 </header>
 
 <section class="card">

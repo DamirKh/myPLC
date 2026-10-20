@@ -3,6 +3,7 @@ local M = {}
 local BLACK = { 0, 0, 0 }
 local RED = { 255, 0, 0 }
 local BLUE = { 0, 0, 255 }
+local PURPLE = { 255, 0, 255 }
 local GREEN = { 0, 255, 0 }
 local GREEN_DIM = { 0, 28, 0 }
 local YELLOW = { 255, 180, 0 }
@@ -16,8 +17,12 @@ local function slots(state)
    if state.fault then
       list[#list + 1] = RED
    end
-   if not state.wifi then
+   if (state.wifi_mode == "sta" and not state.wifi_sta_connected)
+      or (state.wifi_mode ~= "ap" and not state.wifi) then
       list[#list + 1] = BLUE
+   end
+   if state.wifi_mode == "ap" and not state.wifi_ap_client_active then
+      list[#list + 1] = PURPLE
    end
    if state.service then
       list[#list + 1] = YELLOW

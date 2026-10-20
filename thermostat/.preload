@@ -32,6 +32,46 @@ if ba and ba.aeskey then
    end
 end
 
+local wifi_tpm_key
+local function wifi_crypto_key()
+   if wifi_tpm_key then
+      return wifi_tpm_key
+   end
+   if not (ba and ba.tpm and ba.tpm.uniquekey) then
+      return nil, "softTPM unavailable"
+   end
+   local ok, key = pcall(ba.tpm.uniquekey, "thermostat-wifi", 32)
+   if not ok or not key then
+      return nil, tostring(key)
+   end
+   wifi_tpm_key = key
+   return key
+end
+
+local function encrypt_wifi_password(password)
+   local key, err = wifi_crypto_key()
+   if not key then
+      return nil, err
+   end
+   local ok, value = pcall(ba.aesencode, key, password)
+   if not ok or not value then
+      return nil, tostring(value)
+   end
+   return value
+end
+
+local function decrypt_wifi_password(value)
+   local key, err = wifi_crypto_key()
+   if not key then
+      return nil, err
+   end
+   local ok, password = pcall(ba.aesdecode, key, value)
+   if not ok or not password then
+      return nil, tostring(password)
+   end
+   return password
+end
+
 local pin_failures = {}
 
 local function pin_is_configured()
@@ -74,7 +114,13 @@ local scan_started = 0
 local scan_result = nil
 local sensor_busy = false
 local wifi_connected = false
+local wifi_sta_connected = false
 local wifi_mode = nil
+local wifi_ip = nil
+local wifi_ap_client_seen = nil
+local wifi_connect_deadline = nil
+local wifi_switch_timer = nil
+local wifi_last_error = nil
 local led_tick = 0
 local boot_until = os.time() + 2
 local time_valid = os.time() > 1600000000
@@ -156,6 +202,13 @@ local function build_state()
       mqtt_connected = mqtt_bridge and mqtt_bridge.connected or false,
       wifi = wifi_connected,
       wifi_mode = wifi_mode,
+      wifi_sta_connected = wifi_sta_connected,
+      wifi_ip = wifi_ip,
+      wifi_sta_ssid = cfg.wifi.sta_ssid or "",
+      wifi_has_credentials = "" ~= (cfg.wifi.sta_ssid or "") and "" ~= (cfg.wifi.sta_password_enc or ""),
+      wifi_ap_client_active = "ap" == wifi_mode and wifi_ap_client_seen ~= nil
+         and (os.time() - wifi_ap_client_seen) < 30,
+      wifi_last_error = wifi_last_error,
       led_tick = led_tick,
       pin_configured = pin_is_configured(),
       pin_available = pin_key ~= nil,
@@ -184,6 +237,10 @@ local function apply_led()
       fault = #state.faults > 0,
       service = service_mode,
       wifi = wifi_connected,
+      wifi_mode = wifi_mode,
+      wifi_sta_connected = wifi_sta_connected,
+      wifi_ap_client_active = "ap" == wifi_mode and wifi_ap_client_seen ~= nil
+         and (os.time() - wifi_ap_client_seen) < 30,
       pump = state.pump,
    }, led_tick)
    rgb:write(color)
@@ -320,6 +377,7 @@ end
 local function sanitized_config()
    local out = config.merge(cfg, {})
    out.mqtt.password = (cfg.mqtt.password and "" ~= cfg.mqtt.password) and "***" or ""
+   out.wifi.sta_password_enc = (cfg.wifi.sta_password_enc and "" ~= cfg.wifi.sta_password_enc) and "***" or ""
    out.security = {
       pin_configured = pin_is_configured(),
       session_minutes = cfg.security.session_minutes or 30,
@@ -646,6 +704,197 @@ function remove_sensor(bus, rom)
    return true
 end
 
+local function trim(text)
+   return tostring(text or ""):match("^%s*(.-)%s*$")
+end
+
+local function cancel_wifi_switch()
+   if wifi_switch_timer then
+      wifi_switch_timer:cancel()
+      wifi_switch_timer = nil
+   end
+end
+
+local function schedule_wifi_switch(delay_ms, fn)
+   cancel_wifi_switch()
+   wifi_switch_timer = ba.timer(function()
+      wifi_switch_timer = nil
+      fn()
+   end)
+   wifi_switch_timer:set(delay_ms)
+end
+
+local function save_wifi_config(wifi_patch)
+   local newcfg = config.merge(cfg, { wifi = wifi_patch })
+   local ok, errors = config.validate(newcfg)
+   if not ok then
+      return false, errors
+   end
+   local saved, err = config.save(io, newcfg)
+   if not saved then
+      return false, err
+   end
+   cfg = newcfg
+   return true
+end
+
+local function start_sta(ssid, password)
+   wifi_connect_deadline = os.time() + (cfg.wifi.connect_timeout_sec or 60)
+   wifi_last_error = nil
+   schedule_wifi_switch(2000, function()
+      if esp32 and esp32.netconnect then
+         local ok, err = pcall(esp32.netconnect, "wifi", { ssid = ssid, pwd = password })
+         if not ok then
+            wifi_last_error = tostring(err)
+            trace("thermostat: wifi:", wifi_last_error)
+         end
+      end
+   end)
+end
+
+function wifi_connect(ssid, password)
+   ssid = trim(ssid)
+   password = tostring(password or "")
+   if "" == ssid then
+      return false, "SSID не может быть пустым."
+   end
+   if "" == password then
+      return false, "Пароль не может быть пустым."
+   end
+   local encrypted, err = encrypt_wifi_password(password)
+   if not encrypted then
+      return false, "Не удалось сохранить пароль: " .. tostring(err)
+   end
+   local ok, save_err = save_wifi_config({
+      mode = "sta",
+      sta_ssid = ssid,
+      sta_password_enc = encrypted,
+      connect_timeout_sec = cfg.wifi.connect_timeout_sec or 60,
+   })
+   if not ok then
+      return false, save_err
+   end
+   start_sta(ssid, password)
+   return true, { mode = "sta", ssid = ssid }
+end
+
+function wifi_use_saved()
+   local wifi = cfg.wifi or {}
+   if "" == (wifi.sta_ssid or "") or "" == (wifi.sta_password_enc or "") then
+      return false, "Сохранённая сеть отсутствует."
+   end
+   local password, err = decrypt_wifi_password(wifi.sta_password_enc)
+   if not password then
+      return false, "Не удалось расшифровать пароль: " .. tostring(err)
+   end
+   local ok, save_err = save_wifi_config({
+      mode = "sta",
+      sta_ssid = wifi.sta_ssid,
+      sta_password_enc = wifi.sta_password_enc,
+      connect_timeout_sec = wifi.connect_timeout_sec or 60,
+   })
+   if not ok then
+      return false, save_err
+   end
+   start_sta(wifi.sta_ssid, password)
+   return true, { mode = "sta", ssid = wifi.sta_ssid }
+end
+
+function wifi_switch_ap()
+   local ok, err = save_wifi_config({
+      mode = "ap",
+      sta_ssid = cfg.wifi.sta_ssid or "",
+      sta_password_enc = cfg.wifi.sta_password_enc or "",
+      connect_timeout_sec = cfg.wifi.connect_timeout_sec or 60,
+   })
+   if not ok then
+      return false, err
+   end
+   wifi_connect_deadline = nil
+   schedule_wifi_switch(2000, function()
+      if "sta" == wifi_mode and esp32 and esp32.netconnect then
+         local connected, conn_err = pcall(esp32.netconnect, "wifi")
+         if not connected then
+            wifi_last_error = tostring(conn_err)
+            trace("thermostat: wifi ap:", wifi_last_error)
+         end
+      end
+   end)
+   return true
+end
+
+function wifi_forget()
+   local ok, err = save_wifi_config({
+      mode = "ap",
+      sta_ssid = "",
+      sta_password_enc = "",
+      connect_timeout_sec = cfg.wifi.connect_timeout_sec or 60,
+   })
+   if not ok then
+      return false, err
+   end
+   wifi_connect_deadline = nil
+   schedule_wifi_switch(2000, function()
+      if "sta" == wifi_mode and esp32 and esp32.netconnect then
+         pcall(esp32.netconnect, "wifi")
+      end
+   end)
+   return true
+end
+
+function wifi_note_client(peer)
+   if "ap" == wifi_mode and peer and "" ~= tostring(peer) then
+      wifi_ap_client_seen = os.time()
+   end
+end
+
+function wifi_scan()
+   if not (esp32 and esp32.wscan) then
+      return nil, "Сканирование Wi-Fi недоступно."
+   end
+   local ok, result = pcall(esp32.wscan)
+   if not ok then
+      return nil, tostring(result)
+   end
+   local list = {}
+   for _, item in ipairs(result or {}) do
+      if item.ssid and "" ~= item.ssid then
+         list[#list + 1] = item
+      end
+   end
+   table.sort(list, function(a, b)
+      return (tonumber(a.rssi) or -999) > (tonumber(b.rssi) or -999)
+   end)
+   return list
+end
+
+local function apply_wifi_config()
+   local wifi = cfg.wifi or {}
+   if "ap" == wifi.mode then
+      schedule_wifi_switch(1500, function()
+         if "sta" == wifi_mode and esp32 and esp32.netconnect then
+            pcall(esp32.netconnect, "wifi")
+         end
+      end)
+      return
+   end
+   if "sta" ~= wifi.mode then
+      return
+   end
+   if "" == (wifi.sta_ssid or "") or "" == (wifi.sta_password_enc or "") then
+      trace("thermostat: wifi: saved STA credentials are missing")
+      wifi_switch_ap()
+      return
+   end
+   local password, err = decrypt_wifi_password(wifi.sta_password_enc)
+   if not password then
+      trace("thermostat: wifi: cannot decrypt STA password:", tostring(err))
+      wifi_switch_ap()
+      return
+   end
+   start_sta(wifi.sta_ssid, password)
+end
+
 local function restart_mqtt()
    if mqtt_bridge then
       mqtt_bridge:stop()
@@ -737,6 +986,7 @@ function onunload()
    if manual_timer then
       manual_timer:cancel()
    end
+   cancel_wifi_switch()
    if mqtt_bridge then
       mqtt_bridge:stop()
    end
@@ -755,9 +1005,32 @@ if xedge and xedge.event then
       apply_control()
    end)
    xedge.event("wifi", function(status, mode)
-      wifi_mode = mode
+      if "ap" == mode or "sta" == mode then
+         if wifi_mode ~= mode then
+            wifi_ap_client_seen = nil
+         end
+         wifi_mode = mode
+      end
       wifi_connected = (status == "up")
+      if "sta" == wifi_mode then
+         wifi_sta_connected = (status == "up")
+         if wifi_sta_connected then
+            wifi_connect_deadline = nil
+            wifi_last_error = nil
+         end
+      elseif "ap" == wifi_mode then
+         wifi_sta_connected = false
+         if "ap" == (cfg.wifi.mode or "auto") then
+            wifi_connect_deadline = nil
+         end
+      end
+      if "up" ~= status and "down" ~= status then
+         wifi_last_error = tostring(status)
+      end
       apply_led()
+   end)
+   xedge.event("wip", function(ip)
+      wifi_ip = ip
    end)
    xedge.event("error", function(msg)
       ssr_write(false)
@@ -767,10 +1040,17 @@ end
 
 load_history()
 restart_mqtt()
+apply_wifi_config()
 
 -- Xedge timers stop when the callback returns. Repeating work must yield.
 local function control_loop()
    while true do
+      if wifi_connect_deadline and not wifi_sta_connected and os.time() >= wifi_connect_deadline then
+         wifi_connect_deadline = nil
+         wifi_last_error = "STA connection timeout"
+         trace("thermostat: wifi: STA timeout, switching to AP")
+         wifi_switch_ap()
+      end
       if scan_running and (os.time() - scan_started) > 20 then
          scan_running = false
          scan_requested = false

@@ -43,6 +43,7 @@
         <a href="history.lsp">История</a>
         <a href="/admin/settings.lsp">Настройки</a>
         <a href="/admin/sensors.lsp">Датчики</a>
+        <a href="/admin/wifi.lsp">Wi-Fi</a>
       </nav>
       <div class="view-controls">
         <span id="mqttStatus" class="mqtt-status" role="status" aria-live="polite" hidden>

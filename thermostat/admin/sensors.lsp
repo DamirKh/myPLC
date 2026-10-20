@@ -67,7 +67,7 @@ end
 <main>
 <header>
   <div><h1>Датчики</h1><p class="muted">Поиск ROM и назначение ролей</p></div>
-  <nav><a href="/">Обзор</a><a href="/admin/settings.lsp">Настройки</a><a href="/history.lsp">История</a><a href="/admin/pin.lsp">PIN</a><a href="/admin/lock.lsp">Заблокировать</a></nav>
+  <nav><a href="/">Обзор</a><a href="/admin/settings.lsp">Настройки</a><a href="/admin/wifi.lsp">Wi-Fi</a><a href="/history.lsp">История</a><a href="/admin/pin.lsp">PIN</a><a href="/admin/lock.lsp">Заблокировать</a></nav>
 </header>
 
 <?lsp if message then ?><section class="banner <?lsp=message_kind?>"><?lsp=message?></section><?lsp end ?>
