@@ -17,7 +17,7 @@
 <script src="/static/theme.js"></script>
 <title>Тёплый пол</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="static/style.css?v=7">
+<link rel="stylesheet" href="static/style.css?v=8">
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true">
@@ -26,10 +26,10 @@
    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
    <symbol id="i-pump" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M10 8l6 4-6 4z"/></symbol>
    <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 3l10 18H2L12 3z"/><path d="M12 9v5"/><circle cx="12" cy="17" r="1"/></symbol>
-   <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8a15 15 0 0 1 20 0"/><path d="M5 12a10 10 0 0 1 14 0"/><path d="M8 16a5 5 0 0 1 8 0"/><circle cx="12" cy="20" r="1"/></symbol>
    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5z"/></symbol>
+   <symbol id="i-mqtt" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="4" r="1.5"/><circle cx="5" cy="19" r="1.5"/><circle cx="19" cy="19" r="1.5"/><path d="M12 6.5v3M10 13.5l-3.5 4.3M14 13.5l3.5 4.3"/></symbol>
 </svg>
 
 <main>
@@ -45,6 +45,9 @@
         <a href="/admin/sensors.lsp">Датчики</a>
       </nav>
       <div class="view-controls">
+        <span id="mqttStatus" class="mqtt-status" role="status" aria-live="polite" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-mqtt"/></svg>
+        </span>
         <button id="themeToggle" class="theme-toggle" type="button" aria-label="Включить тёмную тему" title="Включить тёмную тему">
           <svg class="icon theme-icon-sun" aria-hidden="true"><use href="#i-sun"/></svg>
           <svg class="icon theme-icon-moon" aria-hidden="true"><use href="#i-moon"/></svg>
@@ -68,10 +71,6 @@
     <span id="stFault" class="status-pill fault" hidden>
       <svg class="icon" aria-hidden="true"><use href="#i-warning"/></svg>
       <span>Авария</span>
-    </span>
-    <span id="stWifi" class="status-pill">
-      <svg class="icon" aria-hidden="true"><use href="#i-wifi"/></svg>
-      <span id="stWifiText">—</span>
     </span>
     <span id="stOverride" class="status-pill" hidden>
       <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
@@ -475,8 +474,17 @@ async function refresh() {
 
       $('stPumpText').textContent = s.pump ? 'Насос ВКЛ' : 'Насос ВЫКЛ';
       $('stPump').className = 'status-pill ' + (s.pump ? 'on' : 'off');
-      $('stWifiText').textContent = s.wifi ? 'Wi-Fi' : 'Нет Wi-Fi';
-      $('stWifi').className = 'status-pill ' + (s.wifi ? 'on' : 'fault');
+      const mqtt = $('mqttStatus');
+      if (s.mqtt_enabled) {
+         const connected = !!s.mqtt_connected;
+         const label = connected ? 'MQTT подключён' : 'MQTT не подключён';
+         mqtt.hidden = false;
+         mqtt.className = 'mqtt-status ' + (connected ? 'on' : 'fault');
+         mqtt.setAttribute('aria-label', label);
+         mqtt.title = label;
+      } else {
+         mqtt.hidden = true;
+      }
 
       const faults = asArray(s.faults);
       const warnings = asArray(s.warnings);
@@ -514,7 +522,7 @@ async function refresh() {
       $('diagnostics').textContent = JSON.stringify({
          mode: s.mode, service_mode: s.service_mode, mqtt_enabled: s.mqtt_enabled,
          mqtt_connected: s.mqtt_connected, wifi: s.wifi, wifi_mode: s.wifi_mode,
-         heartbeat: s.heartbeat, pin_configured: s.pin_configured,
+         led_tick: s.led_tick, pin_configured: s.pin_configured,
          pin_available: s.pin_available, override_active: s.override_active,
          override_until: s.override_until, base_target: s.base_target,
          setpoint_min: s.setpoint_min, setpoint_max: s.setpoint_max,

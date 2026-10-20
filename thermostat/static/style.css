@@ -384,6 +384,7 @@ html[data-view="compact"] .compact-only {
    padding: 8px 12px;
 }
 
+.mqtt-status,
 .theme-toggle {
    display: inline-flex;
    align-items: center;
@@ -394,6 +395,32 @@ html[data-view="compact"] .compact-only {
    border-radius: 12px;
    background: var(--secondary-bg);
    color: var(--text);
+}
+
+.mqtt-status {
+   border: 1px solid transparent;
+   color: var(--muted);
+}
+
+.mqtt-status[hidden] {
+   display: none;
+}
+
+.mqtt-status.on {
+   color: var(--ok);
+   background: var(--ok-bg);
+   border-color: var(--ok-border);
+}
+
+.mqtt-status.fault {
+   color: var(--error);
+   background: var(--error-bg);
+   border-color: var(--error-border);
+}
+
+.mqtt-status .icon {
+   width: 20px;
+   height: 20px;
 }
 
 .theme-toggle .icon {

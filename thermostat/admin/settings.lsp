@@ -30,6 +30,7 @@ if "POST" == request:method() and csrf_ok and not utc_offset then
 end
 
 if "POST" == request:method() and csrf_ok then
+   local mqtt_host = tostring(request:data("mqtt_host") or ""):match("^%s*(.-)%s*$")
    local patch = {
       control = {
          target_room = tonumber(request:data("target_room")),
@@ -47,7 +48,7 @@ if "POST" == request:method() and csrf_ok then
       },
       mqtt = {
          enabled = request:data("mqtt_enabled") and true or false,
-         host = request:data("mqtt_host") or "",
+         host = mqtt_host,
          port = tonumber(request:data("mqtt_port")),
          tls = request:data("mqtt_tls") and true or false,
          username = request:data("mqtt_username") or "",
@@ -69,6 +70,9 @@ if "POST" == request:method() and csrf_ok then
       message = "Настройки сохранены"
       message_kind = "ok"
    else
+      if "table" == type(result) then
+         result = table.concat(result, "; ")
+      end
       message = "Ошибка: " .. tostring(result)
       message_kind = "error"
    end
@@ -102,7 +106,7 @@ local offset_options_html = table.concat(offset_options)
 <title>Настройки — тёплый пол</title>
 <script src="/static/theme.js"></script>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css?v=7">
+<link rel="stylesheet" href="/static/style.css?v=8">
 </head>
 <body>
 <main>

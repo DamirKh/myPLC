@@ -34,16 +34,14 @@ local function scale(value, brightness)
    return value
 end
 
-function Led:write(r, g, b, boost)
+function Led:write(r, g, b)
    if not self.rmt then
       return
    end
    if "table" == type(r) then
-      r, g, b, boost = r[1], r[2], r[3], r[4] or boost
+      r, g, b = r[1], r[2], r[3]
    end
-   boost = boost or 1
-   local brightness = math.min(1, self.brightness * boost)
-   local sr, sg, sb = scale(r, brightness), scale(g, brightness), scale(b, brightness)
+   local sr, sg, sb = scale(r, self.brightness), scale(g, self.brightness), scale(b, self.brightness)
    if self.last and self.last[1] == sg and self.last[2] == sr and self.last[3] == sb then
       return
    end

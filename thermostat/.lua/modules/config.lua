@@ -120,6 +120,49 @@ function M.valid_role(role)
    return "string" == type(role) and nil ~= M.ROLES[role]
 end
 
+local function valid_ipv4(host)
+   local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+   if not a then
+      return false
+   end
+   for _, part in ipairs({ a, b, c, d }) do
+      if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
+         return false
+      end
+   end
+   return true
+end
+
+local function valid_hostname(host)
+   if #host == 0 or #host > 253 or host:sub(1, 1) == "." or host:find("..", 1, true) then
+      return false
+   end
+   for label in host:gmatch("[^.]+") do
+      if #label > 63 or label:sub(-1) == "-" or not label:match("^[A-Za-z0-9][A-Za-z0-9-]*$") then
+         return false
+      end
+   end
+   return true
+end
+
+function M.valid_mqtt_host(host)
+   if "string" ~= type(host) then
+      return false
+   end
+   host = host:match("^%s*(.-)%s*$"):gsub("%.$", "")
+   if "" == host then
+      return false
+   end
+   if host:find(":", 1, true) then
+      local _, colons = host:gsub(":", "")
+      return colons >= 2 and not host:find(":::", 1, true) and host:match("^[%x:%.]+$") ~= nil
+   end
+   if host:match("^%d+%.%d+%.%d+%.%d+$") then
+      return valid_ipv4(host)
+   end
+   return valid_hostname(host)
+end
+
 function M.control_buses()
    return { CONTROL_BUSES[1], CONTROL_BUSES[2] }
 end
@@ -230,6 +273,14 @@ function M.validate(cfg)
    end
    if c.fault_policy ~= "off" then
       errors[#errors + 1] = "only fault_policy=off is supported"
+   end
+
+   local mqtt = cfg.mqtt or {}
+   if not is_number(mqtt.port) or mqtt.port < 1 or mqtt.port > 65535 then
+      errors[#errors + 1] = "mqtt.port out of range"
+   end
+   if mqtt.enabled and not M.valid_mqtt_host(mqtt.host) then
+      errors[#errors + 1] = "mqtt.host is invalid"
    end
 
    local ui = cfg.ui or {}

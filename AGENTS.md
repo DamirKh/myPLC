@@ -46,8 +46,10 @@ The ZIP must contain the contents of `thermostat/`, not the directory itself.
   remains, the pump is OFF.
 - SSR output is active-high by default; the hardware must have a pull-down so
   reset/boot means pump OFF.
-- Keep the LED heartbeat timer independent from sensor and control loops; a
-  frozen heartbeat is the visual hang indicator.
+- Keep the LED slot timer independent from sensor and control loops. Active slots
+  are shown in order red (fault), blue (no Wi-Fi), yellow (service), green (pump,
+  always present); each slot lasts 1.2 s with a 0.4 s off gap. A frozen slot
+  sequence is the visual hang indicator.
 - Never store MQTT passwords or Wi-Fi credentials in git.
 - Admin pages and admin mutations stay under `/admin/` behind the 4-digit PIN
   session; public pages must not expose configuration changes.

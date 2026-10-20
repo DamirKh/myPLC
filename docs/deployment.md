@@ -58,6 +58,37 @@ make package
 Важно: ZIP собирается из **содержимого** каталога `thermostat/`, чтобы `.config`
 и `.preload` были в корне архива.
 
+## Локальный MQTT-брокер для тестов
+
+Для проверки MQTT/Home Assistant используется контейнер Mosquitto:
+
+```bash
+make mqtt-up      # запустить на 0.0.0.0:1883
+make mqtt-test    # проверить publish/subscribe
+make mqtt-watch   # смотреть home/floor/thermostat/#
+make mqtt-logs    # логи брокера
+make mqtt-down    # остановить
+```
+
+Порт и имя контейнера можно переопределить:
+
+```bash
+MQTT_PORT=1884 MQTT_CONTAINER=myplc-mqtt-test make mqtt-up
+```
+
+В `/admin/settings.lsp` укажите:
+
+- Host — LAN-IP компьютера с Docker, например `192.168.43.10`;
+- Port — `1883` (или переопределённый);
+- TLS — выключен;
+- Username/Password — пустые;
+- Base topic — `home/floor/thermostat`;
+- MQTT и, при необходимости, Home Assistant discovery — включены.
+
+После сохранения в `make mqtt-watch` должны появиться `availability` и `state`.
+Брокер тестовый: без пароля, TLS и сохранения сообщений. Не открывайте порт
+1883 в интернет и не используйте этот конфиг в эксплуатации.
+
 ## PIN для настроек
 
 Настройки защищены 4-значным PIN, без логинов и паролей.

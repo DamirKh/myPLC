@@ -156,7 +156,7 @@ local function build_state()
       mqtt_connected = mqtt_bridge and mqtt_bridge.connected or false,
       wifi = wifi_connected,
       wifi_mode = wifi_mode,
-      heartbeat = led_tick,
+      led_tick = led_tick,
       pin_configured = pin_is_configured(),
       pin_available = pin_key ~= nil,
       service_mode = service_mode,
@@ -179,16 +179,14 @@ local function apply_led()
    if not rgb then
       return
    end
-   local blink_on = (math.floor(led_tick / 5) % 2) == 0
-   local heartbeat_on = (led_tick % 20) == 0
-   local color = indicator.color({
+   local color = indicator.frame({
       boot = os.time() < boot_until,
       fault = #state.faults > 0,
       service = service_mode,
       wifi = wifi_connected,
       pump = state.pump,
-   }, blink_on, heartbeat_on)
-   rgb:write(color[1], color[2], color[3], color[4])
+   }, led_tick)
+   rgb:write(color)
 end
 
 local function apply_control()

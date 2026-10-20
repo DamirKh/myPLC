@@ -8,47 +8,38 @@ local GREEN_DIM = { 0, 28, 0 }
 local YELLOW = { 255, 180, 0 }
 local WHITE = { 255, 255, 255 }
 
-local HEARTBEAT_BOOST = 4
+M.SLOT_TICKS = 12
+M.GAP_TICKS = 4
 
-local function color(r, g, b, boost)
-   return { r, g, b, boost or 1 }
+local function slots(state)
+   local list = {}
+   if state.fault then
+      list[#list + 1] = RED
+   end
+   if not state.wifi then
+      list[#list + 1] = BLUE
+   end
+   if state.service then
+      list[#list + 1] = YELLOW
+   end
+   list[#list + 1] = state.pump and GREEN or GREEN_DIM
+   return list
 end
 
-local function with_boost(c, boost)
-   return color(c[1], c[2], c[3], boost)
-end
-
-local function base_color(state)
+function M.frame(state, tick)
+   state = state or {}
    if state.boot then
       return WHITE
    end
-   if state.fault then
-      return RED
-   end
-   if state.service then
-      return YELLOW
-   end
-   if not state.wifi then
-      return BLUE
-   end
-   if state.pump then
-      return GREEN
-   end
-   return GREEN_DIM
-end
 
-function M.color(state, blink_on, heartbeat_on)
-   state = state or {}
-   local base = base_color(state)
-   local blinking = not state.boot and (state.fault or state.service or not state.wifi)
-
-   if heartbeat_on then
-      return with_boost(base, HEARTBEAT_BOOST)
+   local list = slots(state)
+   local width = M.SLOT_TICKS + M.GAP_TICKS
+   local position = math.max(0, math.floor(tonumber(tick) or 0))
+   local index = math.floor(position / width) % #list + 1
+   if position % width >= M.SLOT_TICKS then
+      return BLACK
    end
-   if blinking and not blink_on then
-      return color(BLACK[1], BLACK[2], BLACK[3], 1)
-   end
-   return with_boost(base, 1)
+   return list[index]
 end
 
 return M

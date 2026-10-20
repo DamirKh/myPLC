@@ -1,3 +1,5 @@
+local config = require("modules.config")
+
 local M = {}
 M.__index = M
 
@@ -19,6 +21,9 @@ function M.new(cfg, handlers)
    local mcfg = cfg.mqtt or {}
    if not mcfg.enabled then
       return nil, "disabled"
+   end
+   if not config.valid_mqtt_host(mcfg.host) then
+      return nil, "invalid host"
    end
    local ok, mqttc = pcall(require, "mqttc")
    if not ok then

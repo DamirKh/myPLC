@@ -45,6 +45,35 @@ return function(t)
       t.assert_eq(merged.control.target_room, 22.0)
    end)
 
+   t.test("MQTT host validation accepts addresses and names", function()
+      t.assert_true(config.valid_mqtt_host("192.168.43.202"))
+      t.assert_true(config.valid_mqtt_host("localhost"))
+      t.assert_true(config.valid_mqtt_host("broker.local"))
+      t.assert_true(config.valid_mqtt_host("my-broker.lan"))
+      t.assert_true(config.valid_mqtt_host("2001:db8::1"))
+      t.assert_false(config.valid_mqtt_host("192.168..43.202"))
+      t.assert_false(config.valid_mqtt_host("192.168.43.202:1883"))
+      t.assert_false(config.valid_mqtt_host("999.168.43.202"))
+      t.assert_false(config.valid_mqtt_host(""))
+   end)
+
+   t.test("enabled MQTT rejects malformed host and port", function()
+      local cfg = config.defaults()
+      cfg.mqtt.enabled = true
+      cfg.mqtt.host = "192.168..43.202"
+      local ok = config.validate(cfg)
+      t.assert_false(ok)
+
+      cfg.mqtt.host = "192.168.43.202"
+      cfg.mqtt.port = 0
+      ok = config.validate(cfg)
+      t.assert_false(ok)
+
+      cfg.mqtt.port = 1883
+      local valid, errors = config.validate(cfg)
+      t.assert_true(valid, table.concat(errors or {}, ", "))
+   end)
+
    t.test("setpoint bounds must be ordered and contain base target", function()
       local cfg = config.defaults()
       cfg.ui.public_setpoint_min = 18

@@ -56,6 +56,7 @@ local files = {
    "test_history.lua",
    "test_indicator.lua",
    "test_pin.lua",
+   "test_mqtt.lua",
 }
 
 for _, file in ipairs(files) do
