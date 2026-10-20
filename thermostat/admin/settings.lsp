@@ -56,6 +56,8 @@ if "POST" == request:method() and csrf_ok then
       },
       ui = {
          public_setpoint = request:data("public_setpoint") and true or false,
+         public_setpoint_min = tonumber(request:data("public_setpoint_min")),
+         public_setpoint_max = tonumber(request:data("public_setpoint_max")),
       },
    }
    local pwd = request:data("mqtt_password")
@@ -98,8 +100,9 @@ local offset_options_html = table.concat(offset_options)
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Настройки — тёплый пол</title>
+<script src="/static/theme.js"></script>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css?v=4">
+<link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
 <main>
@@ -116,6 +119,12 @@ local offset_options_html = table.concat(offset_options)
   <div class="form-grid">
     <label>Базовая температура в комнате, °C
       <input name="target_room" type="number" min="5" max="35" step="0.5" value="<?lsp=c.target_room?>" required>
+    </label>
+    <label>Нижняя граница уставки воздуха, °C
+      <input name="public_setpoint_min" type="number" min="5" max="35" step="0.5" value="<?lsp=ui.public_setpoint_min?>" required>
+    </label>
+    <label>Верхняя граница уставки воздуха, °C
+      <input name="public_setpoint_max" type="number" min="5" max="35" step="0.5" value="<?lsp=ui.public_setpoint_max?>" required>
     </label>
     <label>Предел температуры пола, °C
       <input name="floor_limit" type="number" min="10" max="45" step="0.5" value="<?lsp=c.floor_limit?>" required>
@@ -138,6 +147,7 @@ local offset_options_html = table.concat(offset_options)
     </label>
     <label class="check"><input name="public_setpoint" type="checkbox" <?lsp=checked(ui.public_setpoint)?>> Разрешить менять уставку без входа</label>
   </div>
+  <p class="muted">Границы ограничивают изменение уставки воздуха; базовая уставка должна входить в этот диапазон.</p>
 
   <h2>Время и расписание</h2>
   <div class="form-grid">

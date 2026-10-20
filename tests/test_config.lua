@@ -44,4 +44,22 @@ return function(t)
       t.assert_eq(merged.control.floor_limit, 30)
       t.assert_eq(merged.control.target_room, 22.0)
    end)
+
+   t.test("setpoint bounds must be ordered and contain base target", function()
+      local cfg = config.defaults()
+      cfg.ui.public_setpoint_min = 18
+      cfg.ui.public_setpoint_max = 26
+      local ok, errors = config.validate(cfg)
+      t.assert_true(ok, table.concat(errors or {}, ", "))
+
+      cfg.ui.public_setpoint_min = 26
+      cfg.ui.public_setpoint_max = 18
+      ok = config.validate(cfg)
+      t.assert_false(ok)
+
+      cfg.ui.public_setpoint_min = 24
+      cfg.ui.public_setpoint_max = 28
+      ok = config.validate(cfg)
+      t.assert_false(ok)
+   end)
 end

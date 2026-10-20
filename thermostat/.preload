@@ -134,6 +134,8 @@ local function build_state()
       mode = state.mode,
       target = state.target,
       base_target = cfg.control.target_room,
+      setpoint_min = cfg.ui.public_setpoint_min,
+      setpoint_max = cfg.ui.public_setpoint_max,
       override_active = override ~= nil and override.expires ~= nil and override.expires > os.time(),
       override_until = (override and override.expires and override.expires > os.time()) and override.expires or nil,
       floor_limit = cfg.control.floor_limit,
@@ -540,7 +542,7 @@ function set_target(temp, hours, force)
       return false, "invalid temperature"
    end
    if temp < cfg.ui.public_setpoint_min or temp > cfg.ui.public_setpoint_max then
-      return false, "temperature out of public range"
+      return false, "temperature out of range"
    end
    local now = os.time()
    if now - last_set_target < 2 then

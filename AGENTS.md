@@ -33,6 +33,8 @@ The ZIP must contain the contents of `thermostat/`, not the directory itself.
   coroutine loop that calls `coroutine.yield(true)` on every iteration.
 - The application must run without internet access: no CDNs, external fonts,
   remote scripts, or required cloud calls. Keep all runtime assets on board.
+- Use the CSS variables in `static/style.css` for all UI colors so light and dark
+  themes stay consistent. New pages must load `/static/theme.js` in `<head>`.
 - Do not add comments unless they explain a non-obvious safety invariant.
 
 ## Safety invariants

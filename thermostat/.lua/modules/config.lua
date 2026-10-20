@@ -232,6 +232,22 @@ function M.validate(cfg)
       errors[#errors + 1] = "only fault_policy=off is supported"
    end
 
+   local ui = cfg.ui or {}
+   local min_setpoint = ui.public_setpoint_min
+   local max_setpoint = ui.public_setpoint_max
+   if not is_number(min_setpoint) or min_setpoint < 5 or min_setpoint > 35 then
+      errors[#errors + 1] = "public_setpoint_min out of range"
+   end
+   if not is_number(max_setpoint) or max_setpoint < 5 or max_setpoint > 35 then
+      errors[#errors + 1] = "public_setpoint_max out of range"
+   end
+   if is_number(min_setpoint) and is_number(max_setpoint) and min_setpoint >= max_setpoint then
+      errors[#errors + 1] = "public_setpoint_min must be less than public_setpoint_max"
+   elseif is_number(c.target_room) and is_number(min_setpoint) and is_number(max_setpoint)
+      and (c.target_room < min_setpoint or c.target_room > max_setpoint) then
+      errors[#errors + 1] = "target_room must be inside public setpoint range"
+   end
+
    local sec = cfg.security or {}
    if "string" ~= type(sec.pin_salt) or "string" ~= type(sec.pin_hash) then
       errors[#errors + 1] = "security PIN fields must be strings"

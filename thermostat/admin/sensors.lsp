@@ -59,8 +59,9 @@ end
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <?lsp if scan_active then ?><meta http-equiv="refresh" content="2"><?lsp end ?>
 <title>Датчики — тёплый пол</title>
+<script src="/static/theme.js"></script>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css?v=4">
+<link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
 <main>

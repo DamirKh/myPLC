@@ -1,13 +1,85 @@
 :root {
+   color-scheme: light;
    --bg: #eef2f7;
+   --body-bg: linear-gradient(180deg, #e8efff 0%, var(--bg) 40%);
    --surface: #ffffff;
    --text: #0f172a;
    --muted: #5b667a;
    --border: rgba(15, 23, 42, 0.12);
    --accent: #2563eb;
+   --on-accent: #ffffff;
+   --accent-soft: rgba(37, 99, 235, 0.08);
+   --accent-soft-hover: rgba(37, 99, 235, 0.16);
    --ok: #15803d;
+   --ok-bg: #f0fdf4;
+   --ok-border: #bbf7d0;
    --error: #b91c1c;
+   --error-bg: #fef2f2;
+   --error-border: #fecaca;
    --warning: #b45309;
+   --warning-bg: #fff7ed;
+   --warning-border: #fed7aa;
+   --shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+   --input-bg: #ffffff;
+   --code-bg: #f1f5f9;
+   --pre-bg: #f8fafc;
+   --secondary-bg: #e2e8f0;
+   --key-bg: #f1f5f9;
+   --key-action-bg: #e2e8f0;
+   --chart-room: #2563eb;
+   --chart-floor: #f59e0b;
+   --chart-supply: #dc2626;
+   --chart-grid: #d7dee8;
+   --lcd-bg: rgba(248, 250, 252, 0.72);
+   --lcd-border: #cbd5e1;
+   --lcd-off: #cbd5e1;
+   --lcd-on: #0f172a;
+   --lcd-glow: rgba(15, 23, 42, 0.2);
+   --lcd-shadow: inset 0 0 18px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.08);
+   --overlay: rgba(15, 23, 42, 0.45);
+}
+
+html[data-theme="dark"] {
+   color-scheme: dark;
+   --bg: #0b1220;
+   --body-bg:
+      radial-gradient(1100px 600px at 15% -10%, #172b4d 0%, transparent 55%),
+      linear-gradient(180deg, #0e1728 0%, var(--bg) 45%);
+   --surface: #121c2e;
+   --text: #e8eef8;
+   --muted: #94a3b8;
+   --border: rgba(148, 163, 184, 0.2);
+   --accent: #60a5fa;
+   --on-accent: #07101f;
+   --accent-soft: rgba(96, 165, 250, 0.12);
+   --accent-soft-hover: rgba(96, 165, 250, 0.22);
+   --ok: #4ade80;
+   --ok-bg: rgba(34, 197, 94, 0.12);
+   --ok-border: rgba(74, 222, 128, 0.3);
+   --error: #f87171;
+   --error-bg: rgba(248, 113, 113, 0.1);
+   --error-border: rgba(248, 113, 113, 0.28);
+   --warning: #fbbf24;
+   --warning-bg: rgba(251, 191, 36, 0.1);
+   --warning-border: rgba(251, 191, 36, 0.28);
+   --shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+   --input-bg: #0d1728;
+   --code-bg: #1e293b;
+   --pre-bg: #0d1728;
+   --secondary-bg: #243249;
+   --key-bg: #1a2740;
+   --key-action-bg: #243249;
+   --chart-room: #60a5fa;
+   --chart-floor: #fbbf24;
+   --chart-supply: #f87171;
+   --chart-grid: rgba(148, 163, 184, 0.25);
+   --lcd-bg: #07160f;
+   --lcd-border: #1f513b;
+   --lcd-off: #113025;
+   --lcd-on: #63f5a6;
+   --lcd-glow: rgba(99, 245, 166, 0.8);
+   --lcd-shadow: inset 0 0 18px rgba(99, 245, 166, 0.08), 0 8px 24px rgba(2, 10, 6, 0.2);
+   --overlay: rgba(2, 6, 23, 0.72);
 }
 
 * {
@@ -17,7 +89,7 @@
 body {
    margin: 0;
    font-family: "Segoe UI", system-ui, sans-serif;
-   background: linear-gradient(180deg, #e8efff 0%, var(--bg) 40%);
+   background: var(--body-bg);
    color: var(--text);
 }
 
@@ -56,11 +128,11 @@ nav a {
    text-decoration: none;
    padding: 8px 12px;
    border-radius: 999px;
-   background: rgba(37, 99, 235, 0.08);
+   background: var(--accent-soft);
 }
 
 nav a:hover {
-   background: rgba(37, 99, 235, 0.16);
+   background: var(--accent-soft-hover);
 }
 
 .muted {
@@ -81,7 +153,7 @@ nav a:hover {
    border-radius: 18px;
    padding: 20px;
    margin-bottom: 16px;
-   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+   box-shadow: var(--shadow);
 }
 
 .label {
@@ -112,20 +184,20 @@ nav a:hover {
    padding: 14px 18px;
    border-radius: 14px;
    margin-bottom: 16px;
-   background: #fff7ed;
-   border: 1px solid #fed7aa;
+   background: var(--warning-bg);
+   border: 1px solid var(--warning-border);
    color: var(--warning);
 }
 
 .banner.error {
-   background: #fef2f2;
-   border-color: #fecaca;
+   background: var(--error-bg);
+   border-color: var(--error-border);
    color: var(--error);
 }
 
 .banner.ok {
-   background: #f0fdf4;
-   border-color: #bbf7d0;
+   background: var(--ok-bg);
+   border-color: var(--ok-border);
    color: var(--ok);
 }
 
@@ -153,7 +225,7 @@ th {
 }
 
 code {
-   background: #f1f5f9;
+   background: var(--code-bg);
    padding: 2px 5px;
    border-radius: 6px;
    font-size: 12px;
@@ -171,7 +243,7 @@ select {
    padding: 9px 11px;
    border: 1px solid var(--border);
    border-radius: 10px;
-   background: #fff;
+   background: var(--input-bg);
    color: var(--text);
 }
 
@@ -198,12 +270,12 @@ button {
    border-radius: 10px;
    padding: 10px 16px;
    background: var(--accent);
-   color: #fff;
+   color: var(--on-accent);
    cursor: pointer;
 }
 
 button.secondary {
-   background: #e2e8f0;
+   background: var(--secondary-bg);
    color: var(--text);
 }
 
@@ -235,7 +307,7 @@ form.inline {
 
 pre {
    overflow: auto;
-   background: #f8fafc;
+   background: var(--pre-bg);
    border-radius: 12px;
    padding: 14px;
 }
@@ -299,17 +371,79 @@ html[data-view="compact"] .compact-only {
    flex-wrap: wrap;
 }
 
+.view-controls {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+}
+
 .view-toggle {
-   background: #e2e8f0;
+   background: var(--secondary-bg);
    color: var(--text);
    font-size: 14px;
    padding: 8px 12px;
+}
+
+.theme-toggle {
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   width: 40px;
+   height: 40px;
+   padding: 0;
+   border-radius: 12px;
+   background: var(--secondary-bg);
+   color: var(--text);
+}
+
+.theme-toggle .icon {
+   width: 20px;
+   height: 20px;
+}
+
+.theme-icon-sun {
+   display: none;
+}
+
+html[data-theme="dark"] .theme-icon-sun {
+   display: block;
+}
+
+html[data-theme="dark"] .theme-icon-moon {
+   display: none;
 }
 
 .tile .label {
    display: flex;
    align-items: center;
    gap: 6px;
+}
+
+.target-tile {
+   position: relative;
+}
+
+.tile-open {
+   position: absolute;
+   inset: 0;
+   width: 100%;
+   height: 100%;
+   padding: 0;
+   border: 0;
+   border-radius: inherit;
+   background: transparent;
+   color: transparent;
+   cursor: pointer;
+   touch-action: manipulation;
+}
+
+.tile-open:hover {
+   background: var(--accent-soft);
+}
+
+.tile-open:focus-visible {
+   outline: 3px solid var(--accent);
+   outline-offset: -3px;
 }
 
 .status-strip {
@@ -338,8 +472,8 @@ html[data-view="compact"] .compact-only {
 
 .status-pill.on {
    color: var(--ok);
-   background: #f0fdf4;
-   border-color: #bbf7d0;
+   background: var(--ok-bg);
+   border-color: var(--ok-border);
 }
 
 .status-pill.off {
@@ -348,8 +482,8 @@ html[data-view="compact"] .compact-only {
 
 .status-pill.fault {
    color: var(--error);
-   background: #fef2f2;
-   border-color: #fecaca;
+   background: var(--error-bg);
+   border-color: var(--error-border);
 }
 
 .details-body {
@@ -405,8 +539,79 @@ html[data-view="full"] .details-card > .details-body {
    overflow-x: auto;
 }
 
+body.setpoint-open {
+   overflow: hidden;
+}
+
 .compact-setpoint {
+   position: fixed;
+   inset: 0;
+   z-index: 100;
    display: none;
+   align-items: flex-end;
+   justify-content: center;
+   padding: 12px;
+   padding-bottom: max(12px, env(safe-area-inset-bottom));
+   background: var(--overlay);
+   backdrop-filter: blur(2px);
+}
+
+html[data-view="compact"] .compact-setpoint.is-open {
+   display: flex;
+}
+
+.compact-setpoint-panel {
+   width: min(100%, 480px);
+   max-height: calc(100dvh - 24px);
+   margin: 0;
+   padding: 18px;
+   overflow: auto;
+   border-radius: 20px;
+   animation: setpointSheet 0.18s ease-out;
+}
+
+.compact-setpoint-head {
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   gap: 12px;
+   margin-bottom: 16px;
+}
+
+.compact-setpoint-head h2 {
+   margin: 0;
+}
+
+.compact-setpoint-close {
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   width: 36px;
+   height: 36px;
+   padding: 0;
+   border-radius: 50%;
+   background: var(--secondary-bg);
+   color: var(--text);
+   font-size: 22px;
+   line-height: 1;
+}
+
+@keyframes setpointSheet {
+   from {
+      opacity: 0;
+      transform: translateY(16px);
+   }
+
+   to {
+      opacity: 1;
+      transform: translateY(0);
+   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+   .compact-setpoint-panel {
+      animation: none;
+   }
 }
 
 .compact-editor {
@@ -461,10 +666,6 @@ html[data-view="full"] .details-card > .details-body {
 
 html[data-view="compact"] .status-strip {
    display: flex;
-}
-
-html[data-view="compact"] .compact-setpoint {
-   display: block;
 }
 
 html[data-view="compact"] .compact-editor {
@@ -526,8 +727,12 @@ html[data-view="compact"] .banner {
    font-size: 14px;
 }
 
+html[data-view="compact"] .view-controls {
+   width: 100%;
+}
+
 html[data-view="compact"] .view-toggle {
-   align-self: flex-start;
+   flex: 1;
 }
 
 html[data-view="compact"] .details-card {
@@ -596,7 +801,7 @@ html[data-view="compact"] .step-btn {
    aspect-ratio: 1;
    padding: 0;
    border-radius: 50%;
-   background: #f1f5f9;
+   background: var(--key-bg);
    color: var(--text);
    font-size: 24px;
    font-weight: 600;
@@ -607,7 +812,7 @@ html[data-view="compact"] .step-btn {
 }
 
 .pin-key.action {
-   background: #e2e8f0;
+   background: var(--key-action-bg);
    color: var(--muted);
    font-size: 20px;
 }
@@ -668,12 +873,6 @@ html[data-view="compact"] .step-btn {
    gap: 16px;
 }
 
-.clock-label {
-   font-size: 13px;
-   text-transform: uppercase;
-   letter-spacing: 0.06em;
-}
-
 .lcd-clock {
    --lcd-w: 38px;
    --lcd-h: 64px;
@@ -681,12 +880,10 @@ html[data-view="compact"] .step-btn {
    align-items: center;
    gap: 8px;
    padding: 10px 14px;
-   border: 1px solid #1f513b;
+   border: 1px solid var(--lcd-border);
    border-radius: 14px;
-   background: #07160f;
-   box-shadow:
-      inset 0 0 18px rgba(99, 245, 166, 0.08),
-      0 8px 24px rgba(2, 10, 6, 0.2);
+   background: var(--lcd-bg);
+   box-shadow: var(--lcd-shadow);
 }
 
 .lcd-digit {
@@ -697,14 +894,14 @@ html[data-view="compact"] .step-btn {
 
 .lcd-seg {
    position: absolute;
-   background: #113025;
+   background: var(--lcd-off);
    border-radius: 3px;
    transition: background-color 0.08s linear, box-shadow 0.08s linear;
 }
 
 .lcd-seg.on {
-   background: #63f5a6;
-   box-shadow: 0 0 9px rgba(99, 245, 166, 0.8);
+   background: var(--lcd-on);
+   box-shadow: 0 0 9px var(--lcd-glow);
 }
 
 .seg-a {
@@ -717,14 +914,14 @@ html[data-view="compact"] .step-btn {
 .seg-b {
    right: 0;
    top: 11%;
-   width: 9%;
+   width: 12%;
    height: 37%;
 }
 
 .seg-c {
    right: 0;
    bottom: 11%;
-   width: 9%;
+   width: 12%;
    height: 37%;
 }
 
@@ -738,14 +935,14 @@ html[data-view="compact"] .step-btn {
 .seg-e {
    left: 0;
    bottom: 11%;
-   width: 9%;
+   width: 12%;
    height: 37%;
 }
 
 .seg-f {
    left: 0;
    top: 11%;
-   width: 9%;
+   width: 12%;
    height: 37%;
 }
 
@@ -768,8 +965,8 @@ html[data-view="compact"] .step-btn {
    width: 7px;
    height: 7px;
    border-radius: 50%;
-   background: #63f5a6;
-   box-shadow: 0 0 8px rgba(99, 245, 166, 0.7);
+   background: var(--lcd-on);
+   box-shadow: 0 0 8px var(--lcd-glow);
 }
 
 .lcd-clock.invalid {

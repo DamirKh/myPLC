@@ -14,9 +14,10 @@
    }
 })();
 </script>
+<script src="/static/theme.js"></script>
 <title>Тёплый пол</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="static/style.css?v=4">
+<link rel="stylesheet" href="static/style.css?v=7">
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true">
@@ -27,6 +28,8 @@
    <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 3l10 18H2L12 3z"/><path d="M12 9v5"/><circle cx="12" cy="17" r="1"/></symbol>
    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8a15 15 0 0 1 20 0"/><path d="M5 12a10 10 0 0 1 14 0"/><path d="M8 16a5 5 0 0 1 8 0"/><circle cx="12" cy="20" r="1"/></symbol>
    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
+   <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
+   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5z"/></symbol>
 </svg>
 
 <main>
@@ -41,13 +44,18 @@
         <a href="/admin/settings.lsp">Настройки</a>
         <a href="/admin/sensors.lsp">Датчики</a>
       </nav>
-      <button id="viewToggle" class="view-toggle" type="button">Компактный вид</button>
+      <div class="view-controls">
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Включить тёмную тему" title="Включить тёмную тему">
+          <svg class="icon theme-icon-sun" aria-hidden="true"><use href="#i-sun"/></svg>
+          <svg class="icon theme-icon-moon" aria-hidden="true"><use href="#i-moon"/></svg>
+        </button>
+        <button id="viewToggle" class="view-toggle" type="button">Компактный вид</button>
+      </div>
     </div>
   </header>
 
   <section class="card clock-card" aria-label="Текущее время">
     <div id="lcdClock" class="lcd-clock" role="timer" aria-label="Текущее время"></div>
-    <span class="muted clock-label">местное время</span>
   </section>
 
   <section id="banner" class="banner hidden"></section>
@@ -89,13 +97,16 @@
       <span class="muted full-only">предел <span id="floorLimit">—</span> °C</span>
     </article>
 
-    <article class="card tile">
+    <article class="card tile target-tile">
       <span class="label">
         <svg class="icon" aria-hidden="true"><use href="#i-target"/></svg>
         Уставка
       </span>
       <strong id="target" class="value">—</strong>
       <span class="muted full-only">желаемая температура</span>
+      <button id="targetTileButton" class="tile-open compact-only" type="button"
+              aria-label="Изменить уставку" aria-controls="compactSetpoint"
+              aria-haspopup="dialog" aria-expanded="false"></button>
     </article>
 
     <article class="card tile">
@@ -108,18 +119,24 @@
     </article>
   </section>
 
-  <section class="card compact-only compact-setpoint">
-    <div class="compact-editor" role="group" aria-label="Желаемая температура">
-      <button id="minusTarget" class="step-btn" type="button" aria-label="Уменьшить уставку">−</button>
-      <div class="compact-target">
-        <span id="compactTarget">—</span><span class="unit">°C</span>
-        <small id="compactHint">на 2 часа</small>
+  <section id="compactSetpoint" class="compact-setpoint" hidden>
+    <div class="compact-setpoint-panel card" role="dialog" aria-modal="true" aria-labelledby="compactSetpointTitle">
+      <div class="compact-setpoint-head">
+        <h2 id="compactSetpointTitle">Уставка</h2>
+        <button id="closeCompactSetpoint" class="compact-setpoint-close" type="button" aria-label="Закрыть">×</button>
       </div>
-      <button id="plusTarget" class="step-btn" type="button" aria-label="Увеличить уставку">+</button>
-    </div>
-    <div class="compact-actions">
-      <button id="clearOverrideCompact" class="secondary" type="button">Сбросить override</button>
-      <span id="compactSetpointResult" class="muted"></span>
+      <div class="compact-editor" role="group" aria-label="Желаемая температура">
+        <button id="minusTarget" class="step-btn" type="button" aria-label="Уменьшить уставку">−</button>
+        <div class="compact-target">
+          <span id="compactTarget">—</span><span class="unit">°C</span>
+          <small id="compactHint">на 2 часа</small>
+        </div>
+        <button id="plusTarget" class="step-btn" type="button" aria-label="Увеличить уставку">+</button>
+      </div>
+      <div class="compact-actions">
+        <button id="clearOverrideCompact" class="secondary" type="button">Сбросить override</button>
+        <span id="compactSetpointResult" class="muted"></span>
+      </div>
     </div>
   </section>
 
@@ -169,9 +186,14 @@ const fmt = v => (v === null || v === undefined) ? '—' : Number(v).toFixed(1) 
 const fmtShort = v => (v === null || v === undefined) ? '—' : Number(v).toFixed(1);
 const asArray = v => Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
 const VIEW_KEY = 'thermostat.view';
+const DEFAULT_SETPOINT_MIN = 16;
+const DEFAULT_SETPOINT_MAX = 28;
+const SETPOINT_IDLE_MS = 60000;
 let lastState = null;
 let pendingTarget = null;
 let saveTimer = null;
+let setpointOpener = null;
+let setpointIdleTimer = null;
 
 const SEGMENTS = {
    '0': 'abcdef',
@@ -257,6 +279,7 @@ function viewMode() {
 }
 
 function applyView(mode, persist) {
+   if (mode !== 'compact') closeCompactSetpoint(false);
    document.documentElement.dataset.view = mode;
    const button = $('viewToggle');
    const details = $('details');
@@ -279,6 +302,78 @@ function storedView() {
    }
 }
 
+function resetSetpointIdleTimer() {
+   clearTimeout(setpointIdleTimer);
+   setpointIdleTimer = null;
+   const sheet = $('compactSetpoint');
+   if (!sheet || sheet.hidden) return;
+   setpointIdleTimer = setTimeout(() => {
+      setpointIdleTimer = null;
+      closeCompactSetpoint();
+   }, SETPOINT_IDLE_MS);
+}
+
+function openCompactSetpoint() {
+   if (viewMode() !== 'compact') return;
+   const sheet = $('compactSetpoint');
+   if (!sheet || !sheet.hidden) return;
+   setpointOpener = $('targetTileButton');
+   if (lastState) $('compactTarget').textContent = fmtShort(lastState.target);
+   sheet.hidden = false;
+   sheet.classList.add('is-open');
+   document.body.classList.add('setpoint-open');
+   $('targetTileButton').setAttribute('aria-expanded', 'true');
+   $('closeCompactSetpoint').focus({preventScroll: true});
+   resetSetpointIdleTimer();
+}
+
+function closeCompactSetpoint(restoreFocus = true) {
+   const sheet = $('compactSetpoint');
+   if (!sheet || sheet.hidden) return;
+   clearTimeout(setpointIdleTimer);
+   setpointIdleTimer = null;
+   sheet.classList.remove('is-open');
+   sheet.hidden = true;
+   document.body.classList.remove('setpoint-open');
+   $('targetTileButton').setAttribute('aria-expanded', 'false');
+   if (restoreFocus && setpointOpener && document.contains(setpointOpener)) {
+      setpointOpener.focus({preventScroll: true});
+   }
+   setpointOpener = null;
+}
+
+function setpointBounds() {
+   const stateMin = lastState ? Number(lastState.setpoint_min) : NaN;
+   const stateMax = lastState ? Number(lastState.setpoint_max) : NaN;
+   return {
+      min: Number.isFinite(stateMin) ? stateMin : DEFAULT_SETPOINT_MIN,
+      max: Number.isFinite(stateMax) ? stateMax : DEFAULT_SETPOINT_MAX
+   };
+}
+
+function clampTarget(value) {
+   const bounds = setpointBounds();
+   return Math.min(bounds.max, Math.max(bounds.min, roundHalf(value)));
+}
+
+function syncThemeToggle() {
+   const button = $('themeToggle');
+   if (!button) return;
+   const dark = document.documentElement.dataset.theme === 'dark';
+   const label = dark ? 'Включить светлую тему' : 'Включить тёмную тему';
+   button.setAttribute('aria-label', label);
+   button.title = label;
+}
+
+if ($('themeToggle') && window.thermostatTheme) {
+   $('themeToggle').addEventListener('click', () => {
+      window.thermostatTheme.toggle();
+      syncThemeToggle();
+   });
+}
+document.addEventListener('thermostat:theme', syncThemeToggle);
+syncThemeToggle();
+
 function showSetpointMessage(text) {
    if ($('setpointResult')) $('setpointResult').textContent = text;
    if ($('compactSetpointResult')) $('compactSetpointResult').textContent = text;
@@ -289,7 +384,7 @@ function roundHalf(value) {
 }
 
 function scheduleTargetSave(value) {
-   const target = Math.min(28, Math.max(16, roundHalf(value)));
+   const target = clampTarget(value);
    pendingTarget = target;
    if ($('compactTarget')) $('compactTarget').textContent = fmtShort(target);
    if (document.activeElement !== $('setpoint')) $('setpoint').value = target;
@@ -344,6 +439,9 @@ async function refresh() {
       lastState = s;
       syncClock(s);
       updateClock();
+      const bounds = setpointBounds();
+      $('setpoint').min = bounds.min;
+      $('setpoint').max = bounds.max;
       const compact = viewMode() === 'compact';
 
       $('pump').textContent = s.pump ? 'ВКЛ' : 'ВЫКЛ';
@@ -419,6 +517,7 @@ async function refresh() {
          heartbeat: s.heartbeat, pin_configured: s.pin_configured,
          pin_available: s.pin_available, override_active: s.override_active,
          override_until: s.override_until, base_target: s.base_target,
+         setpoint_min: s.setpoint_min, setpoint_max: s.setpoint_max,
          utc_offset_minutes: s.utc_offset_minutes, time_valid: s.time_valid
       }, null, 2);
    } catch (e) {
@@ -433,6 +532,37 @@ $('viewToggle').addEventListener('click', () => {
    const next = viewMode() === 'compact' ? 'full' : 'compact';
    applyView(next, true);
    refresh();
+});
+
+$('targetTileButton').addEventListener('click', openCompactSetpoint);
+$('closeCompactSetpoint').addEventListener('click', () => closeCompactSetpoint());
+$('compactSetpoint').addEventListener('click', event => {
+   if (event.target === event.currentTarget) closeCompactSetpoint();
+});
+['pointerdown', 'keydown', 'click', 'input'].forEach(type => {
+   $('compactSetpoint').addEventListener(type, resetSetpointIdleTimer);
+});
+
+document.addEventListener('keydown', event => {
+   const sheet = $('compactSetpoint');
+   if (!sheet || sheet.hidden) return;
+   if (event.key === 'Escape') {
+      event.preventDefault();
+      closeCompactSetpoint();
+      return;
+   }
+   if (event.key !== 'Tab') return;
+   const focusable = Array.from(sheet.querySelectorAll('button:not([disabled])'));
+   if (!focusable.length) return;
+   const first = focusable[0];
+   const last = focusable[focusable.length - 1];
+   if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+   } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+   }
 });
 
 $('minusTarget').addEventListener('click', () => {
@@ -450,7 +580,7 @@ $('setpointForm').addEventListener('submit', e => {
    clearTimeout(saveTimer);
    saveTimer = null;
    pendingTarget = null;
-   const target = Number($('setpoint').value);
+   const target = clampTarget(Number($('setpoint').value));
    fetch('api/setpoint.lsp', {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},

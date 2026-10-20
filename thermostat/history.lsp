@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>История — тёплый пол</title>
+<script src="/static/theme.js"></script>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="static/style.css?v=4">
+<link rel="stylesheet" href="static/style.css?v=7">
 </head>
 <body>
 <main>
@@ -29,24 +30,31 @@ const canvas = document.getElementById('chart');
 const ctx = canvas.getContext('2d');
 const asArray = v => Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
 let currentRange = 86400;
+let lastItems = [];
+
+function themeColor(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
 
 function lineColor(name) {
-  return {room: '#2563eb', floor: '#f59e0b', supply: '#dc2626'}[name] || '#666';
+  return themeColor('--chart-' + name, '#666');
 }
 
 function draw(items) {
+  lastItems = items;
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = themeColor('--surface', '#fff');
   ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = '#d7dee8';
+  ctx.strokeStyle = themeColor('--chart-grid', '#d7dee8');
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = 20 + i * (h - 40) / 4;
     ctx.beginPath(); ctx.moveTo(54, y); ctx.lineTo(w - 12, y); ctx.stroke();
   }
   if (!Array.isArray(items) || items.length < 2) {
-    ctx.fillStyle = '#5b667a';
+    ctx.fillStyle = themeColor('--muted', '#5b667a');
     ctx.fillText('Нет данных', 20, 30);
     return;
   }
@@ -64,7 +72,7 @@ function draw(items) {
   v0 -= pad; v1 += pad;
   const xOf = t => 54 + (t - t0) / Math.max(1, t1 - t0) * (w - 66);
   const yOf = v => 20 + (v1 - v) / Math.max(0.1, v1 - v0) * (h - 40);
-  ctx.fillStyle = '#5b667a';
+  ctx.fillStyle = themeColor('--muted', '#5b667a');
   ctx.font = '12px sans-serif';
   for (let i = 0; i <= 4; i++) {
     const v = v1 - i * (v1 - v0) / 4;
@@ -94,6 +102,9 @@ async function load(range) {
 
 document.querySelectorAll('button[data-range]').forEach(b => {
   b.addEventListener('click', () => load(Number(b.dataset.range)));
+});
+document.addEventListener('thermostat:theme', () => {
+  if (lastItems.length) draw(lastItems);
 });
 load(currentRange);
 </script>
