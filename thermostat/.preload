@@ -84,7 +84,7 @@ local function ssr_write(on)
       return
    end
    local active_high = cfg.pins.ssr_active_high ~= false
-   ssr:value(active_high and on or not on)
+   ssr:value(active_high == (on and true or false))
 end
 
 if esp32 and esp32.gpio then
@@ -112,6 +112,7 @@ local scan_requested = false
 local scan_running = false
 local scan_started = 0
 local scan_result = nil
+local scan_job_timer = nil
 local sensor_busy = false
 local wifi_connected = false
 local wifi_sta_connected = false
@@ -129,6 +130,12 @@ local last_mqtt_publish = 0
 local last_history_persist = 0
 local last_set_target = 0
 local history_pending = {}
+
+local function cancel_timer(timer)
+   if timer then
+      pcall(timer.cancel, timer)
+   end
+end
 
 local function max_value(t)
    local v = t[1]
@@ -289,8 +296,8 @@ local function sensor_loop()
    end
 end
 
-local function scan_loop()
-   while true do
+local function scan_job()
+   while scan_requested or scan_running do
       if scan_requested and not scan_running and not sensor_busy then
          scan_requested = false
          scan_running = true
@@ -298,14 +305,28 @@ local function scan_loop()
          service_mode = true
          scan_result = nil
          apply_control()
+         trace("thermostat: scan started")
          scan_result = sensor_mgr:scan_all()
          scan_running = false
          service_mode = false
          snapshot = sensor_mgr:snapshot(os.time())
          apply_control()
+         trace("thermostat: scan done")
+         return
       end
       coroutine.yield(true)
    end
+end
+
+local function start_scan_job()
+   if scan_job_timer then
+      return
+   end
+   scan_job_timer = ba.timer(function()
+      scan_job_timer = nil
+      scan_job()
+   end)
+   scan_job_timer:set(50)
 end
 
 local function history_sample()
@@ -656,9 +677,11 @@ function scan_sensors()
       return { status = "queued" }
    end
    scan_requested = true
+   scan_started = os.time()
    scan_result = nil
    service_mode = true
    apply_control()
+   start_scan_job()
    return { status = "queued" }
 end
 
@@ -666,6 +689,8 @@ function scan_status()
    return {
       running = scan_running,
       requested = scan_requested,
+      started = scan_started,
+      sensor_busy = sensor_busy,
       result = scan_result,
    }
 end
@@ -677,29 +702,33 @@ function assign_sensor(bus, rom, role, label, offset)
    if "diag" ~= bus and "control_a" ~= bus and "control_b" ~= bus then
       return false, "invalid bus"
    end
-   config.set_sensor(cfg, bus, rom, role, label, offset)
-   local ok, errors = config.validate(cfg)
+   local newcfg = config.merge(cfg, {})
+   config.set_sensor(newcfg, bus, rom, role, label, offset)
+   local ok, errors = config.validate(newcfg)
    if not ok then
       return false, errors
    end
-   local saved, err = config.save(io, cfg)
+   local saved, err = config.save(io, newcfg)
    if not saved then
       return false, err
    end
+   cfg = newcfg
    sensor_mgr.cfg = cfg
    return true
 end
 
 function remove_sensor(bus, rom)
-   config.remove_sensor(cfg, bus, rom)
-   local ok, errors = config.validate(cfg)
+   local newcfg = config.merge(cfg, {})
+   config.remove_sensor(newcfg, bus, rom)
+   local ok, errors = config.validate(newcfg)
    if not ok then
       return false, errors
    end
-   local saved, err = config.save(io, cfg)
+   local saved, err = config.save(io, newcfg)
    if not saved then
       return false, err
    end
+   cfg = newcfg
    sensor_mgr.cfg = cfg
    return true
 end
@@ -710,7 +739,7 @@ end
 
 local function cancel_wifi_switch()
    if wifi_switch_timer then
-      wifi_switch_timer:cancel()
+      cancel_timer(wifi_switch_timer)
       wifi_switch_timer = nil
    end
 end
@@ -968,24 +997,12 @@ end
 
 function onunload()
    ssr_write(false)
-   if sensor_timer then
-      sensor_timer:cancel()
-   end
-   if control_timer then
-      control_timer:cancel()
-   end
-   if scan_timer then
-      scan_timer:cancel()
-   end
-   if history_timer then
-      history_timer:cancel()
-   end
-   if led_timer then
-      led_timer:cancel()
-   end
-   if manual_timer then
-      manual_timer:cancel()
-   end
+   cancel_timer(sensor_timer)
+   cancel_timer(control_timer)
+   cancel_timer(scan_job_timer)
+   cancel_timer(history_timer)
+   cancel_timer(led_timer)
+   cancel_timer(manual_timer)
    cancel_wifi_switch()
    if mqtt_bridge then
       mqtt_bridge:stop()
@@ -1051,10 +1068,14 @@ local function control_loop()
          trace("thermostat: wifi: STA timeout, switching to AP")
          wifi_switch_ap()
       end
-      if scan_running and (os.time() - scan_started) > 20 then
+      if (scan_running or scan_requested) and (os.time() - scan_started) > 20 then
          scan_running = false
          scan_requested = false
          service_mode = false
+         if scan_job_timer then
+            cancel_timer(scan_job_timer)
+            scan_job_timer = nil
+         end
          scan_result = { buses = {}, errors = { "Сканирование не завершилось за 20 секунд." } }
       end
       apply_control()
@@ -1079,9 +1100,6 @@ end
 
 sensor_timer = ba.timer(sensor_loop)
 sensor_timer:set(10000)
-
-scan_timer = ba.timer(scan_loop)
-scan_timer:set(500)
 
 control_timer = ba.timer(control_loop)
 control_timer:set(1000)
