@@ -49,6 +49,25 @@ return function(t)
       t.assert_eq(#snap.water, 1)
    end)
 
+   t.test("successive reads expose temperature delta", function()
+      local manager = make_manager()
+      local item = {
+         key = "control_a:28AABBCCDDEEFF00",
+         sensor = manager.cfg.sensors["control_a:28AABBCCDDEEFF00"],
+      }
+      manager:set_ok(item, { temp = 21, raw = 336 }, 1000)
+      manager:set_ok(item, { temp = 21.5, raw = 344 }, 1010)
+      local snap = manager:snapshot(1010)
+      local found
+      for _, diagnostic in ipairs(snap.diagnostics) do
+         if diagnostic.key == item.key then
+            found = diagnostic
+         end
+      end
+      t.assert_true(found)
+      t.assert_near(found.delta, 0.5, 0.0001)
+   end)
+
    t.test("snapshot returns nil aggregates without valid sensors", function()
       local manager = make_manager()
       local snap = manager:snapshot(1000)

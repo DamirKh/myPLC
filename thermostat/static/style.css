@@ -629,6 +629,18 @@ html[data-view="full"] .details-card > .details-body {
    font-variant-numeric: tabular-nums;
 }
 
+.rise-icon {
+   display: inline-block;
+   min-width: 1em;
+   margin-left: 6px;
+   color: var(--accent);
+   font-weight: 700;
+}
+
+.sensor-actions {
+   margin-top: 16px;
+}
+
 .sensor-status {
    font-size: 13px;
 }

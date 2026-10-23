@@ -50,9 +50,15 @@ end
 
 function M:set_ok(item, data, now)
    local prev = self.last[item.key]
+   local temp = data.temp + (item.sensor.offset or 0)
+   local delta = nil
+   if prev and prev.ok and prev.temp then
+      delta = temp - prev.temp
+   end
    self.last[item.key] = {
       ok = true,
-      temp = data.temp + (item.sensor.offset or 0),
+      temp = temp,
+      delta = delta,
       raw = data.raw,
       ts = now,
       good_count = (prev and prev.good_count or 0) + 1,
@@ -67,6 +73,7 @@ function M:set_failure(item, err, now)
       err = err,
       ts = now,
       temp = prev.temp,
+      delta = nil,
       good_count = 0,
       fail_count = (prev.fail_count or 0) + 1,
    }
@@ -264,6 +271,7 @@ function M:snapshot(now)
          role = sensor.role,
          label = sensor.label,
          temp = last and last.temp or nil,
+         delta = last and last.delta or nil,
          ts = last and last.ts or nil,
          ok = false,
          stale = true,

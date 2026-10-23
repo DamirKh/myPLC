@@ -651,6 +651,7 @@ function get_sensor_table()
          assigned = sensor ~= nil,
          present = present,
          temp = last and last.temp or nil,
+         delta = last and last.delta or nil,
          ts = last and last.ts or nil,
          ok = false,
          stale = true,
@@ -677,10 +678,24 @@ function get_sensor_table()
       add(sensor.bus, sensor.rom)
    end
 
+   local max_delta = nil
    for _, entry in ipairs(buses) do
       table.sort(entry.sensors, function(a, b)
          return a.rom < b.rom
       end)
+      for _, item in ipairs(entry.sensors) do
+         if item.ok and "number" == type(item.delta) and item.delta > 0
+            and (not max_delta or item.delta > max_delta) then
+            max_delta = item.delta
+         end
+      end
+   end
+   if max_delta then
+      for _, entry in ipairs(buses) do
+         for _, item in ipairs(entry.sensors) do
+            item.rise_top = item.ok and item.delta == max_delta
+         end
+      end
    end
 
    return {
@@ -838,6 +853,50 @@ function remove_sensor(bus, rom)
    end
    local newcfg = config.merge(cfg, {})
    config.remove_sensor(newcfg, bus, rom)
+   local ok, errors = config.validate(newcfg)
+   if not ok then
+      return false, errors
+   end
+   local saved, err = config.save(io, newcfg)
+   if not saved then
+      return false, err
+   end
+   cfg = newcfg
+   sensor_mgr.cfg = cfg
+   return true
+end
+
+function update_sensors(rows)
+   if not service_mode then
+      return false, "service mode required"
+   end
+   if "table" ~= type(rows) then
+      return false, "rows must be a table"
+   end
+   local newcfg = config.merge(cfg, {})
+   for _, row in ipairs(rows) do
+      if "table" ~= type(row) then
+         return false, "invalid row"
+      end
+      local bus = row.bus
+      local rom = row.rom
+      if not bus or not rom then
+         return false, "invalid sensor"
+      end
+      if "diag" ~= bus and "control_a" ~= bus and "control_b" ~= bus then
+         return false, "invalid bus"
+      end
+      rom = tostring(rom):upper()
+      local role = row.role
+      if not role or "" == role or "none" == role then
+         config.remove_sensor(newcfg, bus, rom)
+      else
+         if not config.valid_role(role) then
+            return false, "invalid role"
+         end
+         config.set_sensor(newcfg, bus, rom, role, trim(row.label), tonumber(row.offset) or 0)
+      end
+   end
    local ok, errors = config.validate(newcfg)
    if not ok then
       return false, errors
