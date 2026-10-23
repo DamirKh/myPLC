@@ -2,6 +2,9 @@ build/
 *.zip
 thermostat/config.json
 thermostat/history.jsonl
+thermostat/history_room.jsonl
+thermostat/history_pump.jsonl
+thermostat/runtime.json
 thermostat/userdb.encrypted
 *.pem
 *.key
