@@ -6,6 +6,10 @@ end
 
 local message = nil
 local message_kind = "ok"
+local scan_note = request:data("scan")
+if scan_note and "POST" ~= request:method() then
+   message = ("running" == scan_note) and "Сканирование уже выполняется" or "Сканирование запущено"
+end
 local csrf_ok = true
 if "POST" == request:method() then
    if not app.csrf_valid(request:data("csrf")) then
@@ -20,10 +24,9 @@ if "POST" == request:method() and csrf_ok then
    local ok, err
    if "scan" == action then
       local result = app.scan_sensors()
-      ok = true
-      message = (result and "running" == result.status)
-         and "Сканирование уже выполняется"
-         or "Сканирование запущено"
+      local status = result and result.status or "queued"
+      response:sendredirect("/admin/sensors.lsp?scan=" .. status)
+      return
    elseif "assign" == action then
       ok, err = app.assign_sensor(
          request:data("bus"),

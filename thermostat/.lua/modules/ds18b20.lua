@@ -74,13 +74,24 @@ function M.decode_temperature(lsb, msb)
    return raw / 16, raw
 end
 
+local function is_byte(value)
+   return "number" == type(value)
+      and value >= 0
+      and value <= 255
+      and value == math.floor(value)
+end
+
 function M.parse_scratchpad(data)
    if length_of(data) ~= 9 then
       return nil, "scratchpad must be 9 bytes"
    end
    local bytes = {}
    for i = 1, 9 do
-      bytes[i] = byte_at(data, i)
+      local value = byte_at(data, i)
+      if not is_byte(value) then
+         return nil, "scratchpad byte " .. i .. " is missing"
+      end
+      bytes[i] = value
    end
    if M.crc8({ table.unpack(bytes, 1, 8) }) ~= bytes[9] then
       return nil, "CRC error"
@@ -201,15 +212,28 @@ function M.start_convert(bus, rom)
    if not bus:reset() then
       return nil, "no presence"
    end
+   local ok, err
    if rom then
-      bus:write_byte(M.MATCH_ROM)
+      ok, err = bus:write_byte(M.MATCH_ROM)
+      if not ok then
+         return nil, err or "write failed"
+      end
       for i = 1, 8 do
-         bus:write_byte(byte_at(rom, i))
+         ok, err = bus:write_byte(byte_at(rom, i))
+         if not ok then
+            return nil, err or "write failed"
+         end
       end
    else
-      bus:write_byte(M.SKIP_ROM)
+      ok, err = bus:write_byte(M.SKIP_ROM)
+      if not ok then
+         return nil, err or "write failed"
+      end
    end
-   bus:write_byte(M.CONVERT_T)
+   ok, err = bus:write_byte(M.CONVERT_T)
+   if not ok then
+      return nil, err or "write failed"
+   end
    return true
 end
 
@@ -217,14 +241,28 @@ function M.read_scratchpad(bus, rom)
    if not bus:reset() then
       return nil, "no presence"
    end
-   bus:write_byte(M.MATCH_ROM)
-   for i = 1, 8 do
-      bus:write_byte(byte_at(rom, i))
+   local ok, err = bus:write_byte(M.MATCH_ROM)
+   if not ok then
+      return nil, err or "write failed"
    end
-   bus:write_byte(M.READ_SCRATCHPAD)
+   for i = 1, 8 do
+      ok, err = bus:write_byte(byte_at(rom, i))
+      if not ok then
+         return nil, err or "write failed"
+      end
+   end
+   ok, err = bus:write_byte(M.READ_SCRATCHPAD)
+   if not ok then
+      return nil, err or "write failed"
+   end
    local data = {}
    for i = 1, 9 do
-      data[i] = bus:read_byte()
+      local value
+      value, err = bus:read_byte()
+      if not is_byte(value) then
+         return nil, err or "read failed"
+      end
+      data[i] = value
    end
    return M.parse_scratchpad(data)
 end

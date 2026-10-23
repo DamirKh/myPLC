@@ -282,8 +282,12 @@ local function apply_control()
    publish_state_if_needed()
 end
 
-local function sensor_loop()
-   while true do
+local sensor_worker = nil
+local sensor_retry_at = 0
+local sensor_stopping = false
+
+local function sensor_worker_main()
+   while not sensor_stopping do
       if not service_mode and not scan_requested and not scan_running then
          -- Never wrap yielding RMT calls in pcall; Xedge32 rejects yields
          -- across a C-call boundary.
@@ -291,6 +295,30 @@ local function sensor_loop()
          sensor_mgr:read_cycle()
          sensor_busy = false
          snapshot = sensor_mgr:snapshot(os.time())
+      end
+      ba.sleep(10000)
+   end
+end
+
+local function start_sensor_worker()
+   sensor_worker = coroutine.create(sensor_worker_main)
+   local ok, err = coroutine.resume(sensor_worker)
+   if not ok then
+      sensor_busy = false
+      trace("thermostat: sensor worker error:", tostring(err))
+   end
+end
+
+local function sensor_supervisor()
+   while true do
+      if not sensor_worker or "dead" == coroutine.status(sensor_worker) then
+         local now = os.time()
+         if now >= sensor_retry_at then
+            sensor_retry_at = now + 10
+            sensor_busy = false
+            trace("thermostat: sensor worker restart")
+            start_sensor_worker()
+         end
       end
       coroutine.yield(true)
    end
@@ -307,9 +335,10 @@ local function scan_job()
          apply_control()
          trace("thermostat: scan started")
          scan_result = sensor_mgr:scan_all()
+         sensor_mgr:read_cycle()
+         snapshot = sensor_mgr:snapshot(os.time())
          scan_running = false
          service_mode = false
-         snapshot = sensor_mgr:snapshot(os.time())
          apply_control()
          trace("thermostat: scan done")
          return
@@ -996,6 +1025,8 @@ function reload_config()
 end
 
 function onunload()
+   sensor_stopping = true
+   sensor_busy = false
    ssr_write(false)
    cancel_timer(sensor_timer)
    cancel_timer(control_timer)
@@ -1098,8 +1129,9 @@ local function led_loop()
    end
 end
 
-sensor_timer = ba.timer(sensor_loop)
-sensor_timer:set(10000)
+sensor_timer = ba.timer(sensor_supervisor)
+sensor_timer:set(1000)
+start_sensor_worker()
 
 control_timer = ba.timer(control_loop)
 control_timer:set(1000)

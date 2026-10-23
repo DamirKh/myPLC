@@ -128,6 +128,55 @@ return function(t)
       t.assert_true(data.power_on_reset)
    end)
 
+   t.test("parse scratchpad rejects short data", function()
+      local data, err = ds.parse_scratchpad({ 0x91, 0x01, 0x4B })
+      t.assert_eq(data, nil)
+      t.assert_eq(err, "scratchpad must be 9 bytes")
+   end)
+
+   t.test("parse scratchpad rejects missing bytes without throwing", function()
+      local data, err = ds.parse_scratchpad({ nil, nil, nil, nil, 0, nil, nil, nil, 0 })
+      t.assert_eq(data, nil)
+      t.assert_eq(err, "scratchpad byte 1 is missing")
+   end)
+
+   t.test("parse scratchpad rejects nil middle byte", function()
+      local data, err = ds.parse_scratchpad({ 0x91, 0x01, 0x4B, 0x46, nil, 0xFF, 0x0C, 0x10, 0x00 })
+      t.assert_eq(data, nil)
+      t.assert_eq(err, "scratchpad byte 5 is missing")
+   end)
+
+   t.test("read scratchpad rejects missing bus bytes", function()
+      local reads = 0
+      local bus = {
+         reset = function() return true end,
+         write_byte = function() return true end,
+         read_byte = function()
+            reads = reads + 1
+            if reads == 3 then
+               return nil, "timeout"
+            end
+            return 0
+         end,
+      }
+      local rom = make_rom({ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 })
+      local data, err = ds.read_scratchpad(bus, rom)
+      t.assert_eq(data, nil)
+      t.assert_eq(err, "timeout")
+   end)
+
+   t.test("read scratchpad rejects write errors", function()
+      local bus = {
+         reset = function() return true end,
+         write_byte = function() return nil, "bus timeout" end,
+         read_byte = function() return 0 end,
+      }
+      local rom = make_rom({ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 })
+      local data, err = ds.read_scratchpad(bus, rom)
+      t.assert_eq(data, nil)
+      t.assert_eq(err, "bus timeout")
+   end)
+
    t.test("rom round trip", function()
       local rom = make_rom({ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 })
       local text = ds.rom_to_string(rom)
