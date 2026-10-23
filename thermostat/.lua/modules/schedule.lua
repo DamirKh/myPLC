@@ -29,6 +29,34 @@ function M.parse_offset(text)
    return total
 end
 
+function M.offset_from_parts(hours, minutes)
+   hours = tonumber(hours)
+   minutes = tonumber(minutes)
+   if not hours or not minutes then
+      return nil
+   end
+   if hours ~= math.floor(hours) or minutes ~= math.floor(minutes) then
+      return nil
+   end
+   if hours < -12 or hours > 14 then
+      return nil
+   end
+   if minutes < -30 or minutes > 30 or 0 ~= minutes % 30 then
+      return nil
+   end
+   local total
+   if 0 == hours then
+      total = minutes
+   else
+      local sign = hours < 0 and -1 or 1
+      total = hours * 60 + sign * math.abs(minutes)
+   end
+   if total < -720 or total > 840 then
+      return nil
+   end
+   return total
+end
+
 function M.round_offset(minutes)
    minutes = tonumber(minutes) or 0
    return math.max(-720, math.min(840, math.floor((minutes + 15) / 30) * 30))

@@ -22,10 +22,13 @@ if "POST" == request:method() then
    end
 end
 
-local utc_offset = app.parse_utc_offset(request:data("utc_offset"))
+local utc_offset = app.offset_from_parts(
+   request:data("utc_offset_hours"),
+   request:data("utc_offset_minutes")
+)
 if "POST" == request:method() and csrf_ok and not utc_offset then
    csrf_ok = false
-   message = "Некорректное смещение UTC. Используйте формат +03:00 с шагом 30 минут."
+   message = "Некорректное смещение UTC. Часы: от −12 до +14, минуты: 0 или 30 (для −00:30 укажите −30)."
    message_kind = "error"
 end
 
@@ -86,17 +89,15 @@ local ui = cfg.ui
 local function checked(v) return v and "checked" or "" end
 
 local current_offset = app.rounded_utc_offset(s.utc_offset_minutes or 0)
-local offset_options = {}
-for offset = -720, 840, 30 do
-   local text = app.format_utc_offset(offset)
-   offset_options[#offset_options + 1] = string.format(
-      '<option value="%s"%s>%s</option>',
-      text,
-      offset == current_offset and " selected" or "",
-      text
-   )
+local offset_abs = math.abs(current_offset)
+local offset_hours = math.floor(offset_abs / 60)
+if current_offset < 0 then
+   offset_hours = -offset_hours
 end
-local offset_options_html = table.concat(offset_options)
+local offset_minutes = offset_abs % 60
+if current_offset < 0 and 0 == offset_hours then
+   offset_minutes = -offset_minutes
+end
 ?>
 <!doctype html>
 <html lang="ru">
@@ -156,11 +157,14 @@ local offset_options_html = table.concat(offset_options)
   <h2>Время и расписание</h2>
   <div class="form-grid">
     <label class="check"><input name="schedule_enabled" type="checkbox" <?lsp=checked(s.enabled)?>> Расписание включено</label>
-    <label>Смещение UTC (часы:минуты)
-      <select name="utc_offset"><?lsp=offset_options_html?></select>
+    <label>Смещение UTC: часы
+      <input name="utc_offset_hours" type="number" min="-12" max="14" step="1" value="<?lsp=offset_hours?>" required>
+    </label>
+    <label>Смещение UTC: минуты
+      <input name="utc_offset_minutes" type="number" min="-30" max="30" step="30" value="<?lsp=offset_minutes?>" required>
     </label>
   </div>
-  <p class="muted">Шаг смещения — 30 минут. Например, +03:00 или −05:30.</p>
+  <p class="muted">Шаг смещения — 30 минут. Знак задаётся часами; для смещения меньше часа используйте минуты со знаком, например 0 ч и −30 мин.</p>
   <p class="muted">Расписание редактируется на отдельной странице (следующий этап).</p>
 
   <h2>MQTT</h2>

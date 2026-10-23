@@ -56,6 +56,7 @@ local files = {
    "test_controller.lua",
    "test_schedule.lua",
    "test_history.lua",
+   "test_live_buffer.lua",
    "test_indicator.lua",
    "test_pin.lua",
    "test_mqtt.lua",

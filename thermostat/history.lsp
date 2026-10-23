@@ -39,7 +39,7 @@
 
 <section class="card">
   <div class="chart-head">
-    <div><h2>Насос</h2><p class="muted">Подача, обратка, насос и остальные датчики diag</p></div>
+    <div><h2>Насос</h2><p class="muted">Подача, обратка, насос и остальные датчики diag — история или последние 10 минут</p></div>
     <div class="row">
       <button data-pump-mode="history">24 часа</button>
       <button data-pump-mode="live" class="secondary">Сейчас</button>
@@ -51,7 +51,7 @@
 
 <section class="card">
   <div class="chart-head">
-    <div><h2>Датчики</h2><p class="muted">Только текущие значения, без сохранения истории</p></div>
+    <div><h2>Датчики</h2><p class="muted">Последние 10 минут в памяти, без записи на диск</p></div>
     <select id="sensor-bus" class="chart-select">
       <option value="diag">diag</option>
       <option value="control_a">control_a</option>
@@ -364,6 +364,19 @@ function setPumpModeButtons() {
   });
 }
 
+function applyLive(data) {
+  const series = data && data.series && typeof data.series === 'object' ? data.series : {};
+  live = new Map();
+  for (const [key, points] of Object.entries(series)) {
+    if (!Array.isArray(points)) continue;
+    const clean = points
+      .filter(point => point && typeof point.t === 'number' && typeof point.v === 'number')
+      .map(point => ({ t: point.t, v: point.v }))
+      .sort((a, b) => a.t - b.t);
+    if (clean.length) live.set(key, clean);
+  }
+}
+
 function applyState(data) {
   stateSensors = asArray(data.sensors);
   pumpHours = data.pump_hours;
@@ -389,16 +402,19 @@ function applyState(data) {
 async function loadStored() {
   statusLine.textContent = 'Загрузка…';
   try {
-    const [roomResponse, pumpResponse, stateResponse] = await Promise.all([
+    const [roomResponse, pumpResponse, stateResponse, liveResponse] = await Promise.all([
       fetch('api/history.lsp?kind=room&range=' + roomRange, { cache: 'no-store' }),
       fetch('api/history.lsp?kind=pump&range=86400', { cache: 'no-store' }),
-      fetch('api/state.lsp', { cache: 'no-store' })
+      fetch('api/state.lsp', { cache: 'no-store' }),
+      fetch('api/live.lsp', { cache: 'no-store' })
     ]);
     const roomData = await roomResponse.json();
     const pumpData = await pumpResponse.json();
     const stateData = await stateResponse.json();
+    const liveData = await liveResponse.json();
     roomItems = asArray(roomData.items);
     pumpItems = asArray(pumpData.items);
+    applyLive(liveData);
     applyState(stateData);
     statusLine.textContent = '';
     renderAll();

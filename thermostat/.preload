@@ -7,6 +7,7 @@ local controller = require("modules.controller")
 local schedule = require("modules.schedule")
 local history_mod = require("modules.history")
 local history_store = require("modules.history_store")
+local live_buffer = require("modules.live_buffer")
 local pump_runtime = require("modules.pump_runtime")
 local mqtt_mod = require("modules.mqtt_bridge")
 local rgb_led = require("modules.rgb_led")
@@ -109,6 +110,7 @@ local room_hist = history_mod.new(math.max(1, math.floor(
 local pump_hist = history_mod.new(math.max(1, math.floor(
    (cfg.history.pump.retention_sec or 86400) / (cfg.history.pump.sample_sec or 180))))
 local runtime = pump_runtime.new(0)
+local live_buf = live_buffer.new(600)
 local snapshot = sensor_mgr:snapshot(os.time())
 local override = nil
 local manual_pump = false
@@ -283,7 +285,9 @@ local function sensor_worker_main()
             sensor_mgr:read_cycle()
          end
          sensor_busy = false
-         snapshot = sensor_mgr:snapshot(os.time())
+         local now = os.time()
+         snapshot = sensor_mgr:snapshot(now)
+         live_buf:record(snapshot, now)
       end
       ba.sleep(service_mode and 1000 or 10000)
    end
@@ -324,7 +328,9 @@ local function scan_job()
          apply_control()
          trace("thermostat: scan started")
          scan_result = sensor_mgr:scan_all()
-         snapshot = sensor_mgr:snapshot(os.time())
+         local now = os.time()
+         snapshot = sensor_mgr:snapshot(now)
+         live_buf:record(snapshot, now)
          scan_running = false
          scan_mode = false
          apply_control()
@@ -510,12 +516,20 @@ function get_state()
    return build_state()
 end
 
+function get_live()
+   return live_buf:list(os.time())
+end
+
 function format_utc_offset(minutes)
    return schedule.format_offset(minutes)
 end
 
 function parse_utc_offset(text)
    return schedule.parse_offset(text)
+end
+
+function offset_from_parts(hours, minutes)
+   return schedule.offset_from_parts(hours, minutes)
 end
 
 function rounded_utc_offset(minutes)
