@@ -22,6 +22,8 @@ local DEFAULTS = {
       rgb = 48,
       rgb_enabled = true,
       rgb_brightness = 0.25,
+       ap_jumper_out = 10,
+       ap_jumper_in = 11,
    },
    control = {
       target_room = 22.0,
@@ -48,6 +50,7 @@ local DEFAULTS = {
       mode = "auto",
       sta_ssid = "",
       sta_password_enc = "",
+      sta_confirmed = false,
       connect_timeout_sec = 60,
    },
    mqtt = {
@@ -242,7 +245,10 @@ function M.validate(cfg)
 
    local pins = cfg.pins or {}
    local used = {}
-   local pin_names = { "diag", "control_a", "control_b", "ssr" }
+   local pin_names = {
+      "diag", "control_a", "control_b", "ssr",
+      "ap_jumper_out", "ap_jumper_in",
+   }
    if pins.rgb_enabled ~= false then
       pin_names[#pin_names + 1] = "rgb"
    end
@@ -301,6 +307,9 @@ function M.validate(cfg)
    end
    if "string" ~= type(wifi.sta_ssid) or "string" ~= type(wifi.sta_password_enc) then
       errors[#errors + 1] = "wifi credentials must be strings"
+   end
+   if "boolean" ~= type(wifi.sta_confirmed) then
+      errors[#errors + 1] = "wifi.sta_confirmed must be a boolean"
    end
    if not is_number(wifi.connect_timeout_sec) or wifi.connect_timeout_sec < 10 or wifi.connect_timeout_sec > 600 then
       errors[#errors + 1] = "wifi.connect_timeout_sec out of range"

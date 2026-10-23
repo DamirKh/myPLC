@@ -49,7 +49,11 @@ if "POST" == request:method() and csrf_ok then
    elseif "connect" == action then
       local ok, result = app.wifi_connect(request:data("ssid"), request:data("pwd"))
       if ok then
-         message = "Подключение к «" .. tostring(result.ssid) .. "» запущено. Устройство переключится через 2 секунды."
+         if result.deferred then
+            message = "Сеть «" .. tostring(result.ssid) .. "» сохранена. Джампер AP замкнут, устройство остаётся в AP."
+         else
+            message = "Подключение к «" .. tostring(result.ssid) .. "» запущено. Устройство переключится через 2 секунды."
+         end
       else
          message = "Ошибка: " .. error_text(result)
          message_kind = "error"
@@ -99,6 +103,16 @@ if "sta" == mode_text then
 elseif "ap" == mode_text then
    mode_text = "AP"
 end
+local jumper_text = "недоступен"
+if st.ap_jumper_available then
+   if true == st.ap_jumper_closed then
+      jumper_text = "замкнут"
+   elseif false == st.ap_jumper_closed then
+      jumper_text = "разомкнут"
+   else
+      jumper_text = "неизвестно"
+   end
+end
 ?>
 <!doctype html>
 <html lang="ru">
@@ -122,6 +136,14 @@ end
 <section class="card">
   <h2>Текущее состояние</h2>
   <p>Режим: <strong><?lsp=esc(mode_text)?></strong></p>
+  <p>Джампер AP: <strong><?lsp=esc(jumper_text)?></strong></p>
+  <p>STA подтверждён: <strong><?lsp=st.wifi_sta_confirmed and "да" or "нет"?></strong></p>
+  <?lsp if st.ap_jumper_latched and not st.ap_jumper_closed then ?>
+    <p class="banner">AP удерживается после снятия джампера до перезагрузки или ручного переключения в STA.</p>
+  <?lsp end ?>
+  <?lsp if st.ap_jumper_error then ?>
+    <p class="banner error">Джампер AP: <?lsp=esc(st.ap_jumper_error)?></p>
+  <?lsp end ?>
   <p>IP: <strong><?lsp=esc(st.wifi_ip or "—")?></strong></p>
   <?lsp if has_credentials then ?>
     <p>Сохранённая сеть: <strong><?lsp=esc(st.wifi_sta_ssid)?></strong> (пароль сохранён на устройстве)</p>
@@ -175,6 +197,9 @@ end
         <input name="pwd" type="password" autocomplete="new-password" placeholder="Пароль Wi-Fi">
       </label>
     </div>
+    <?lsp if st.ap_jumper_closed then ?>
+      <p class="banner">Джампер AP замкнут. Устройство останется в AP; для STA снимите джампер и перезагрузите устройство.</p>
+    <?lsp end ?>
     <div class="row">
       <button type="submit" name="action" value="connect">Подключиться</button>
       <?lsp if has_credentials then ?>

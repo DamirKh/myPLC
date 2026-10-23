@@ -9,6 +9,7 @@ local history_mod = require("modules.history")
 local history_store = require("modules.history_store")
 local live_buffer = require("modules.live_buffer")
 local pump_runtime = require("modules.pump_runtime")
+local wifi_policy = require("modules.wifi_policy")
 local mqtt_mod = require("modules.mqtt_bridge")
 local rgb_led = require("modules.rgb_led")
 local indicator = require("modules.indicator")
@@ -131,6 +132,12 @@ local wifi_ap_client_seen = nil
 local wifi_connect_deadline = nil
 local wifi_switch_timer = nil
 local wifi_last_error = nil
+local wifi_jumper_out = nil
+local wifi_jumper_in = nil
+local wifi_jumper_closed = nil
+local wifi_jumper_latched = false
+local wifi_jumper_error = nil
+local wifi_jumper_timer = nil
 local led_tick = 0
 local boot_until = os.time() + 2
 local time_valid = os.time() > 1600000000
@@ -198,7 +205,12 @@ local function build_state()
       wifi_sta_connected = wifi_sta_connected,
       wifi_ip = wifi_ip,
       wifi_sta_ssid = cfg.wifi.sta_ssid or "",
-      wifi_has_credentials = "" ~= (cfg.wifi.sta_ssid or "") and "" ~= (cfg.wifi.sta_password_enc or ""),
+      wifi_has_credentials = wifi_policy.sta_configured(cfg),
+      wifi_sta_confirmed = cfg.wifi.sta_confirmed and true or false,
+      ap_jumper_available = wifi_jumper_in ~= nil,
+      ap_jumper_closed = wifi_jumper_closed,
+      ap_jumper_latched = wifi_jumper_latched,
+      ap_jumper_error = wifi_jumper_error,
       wifi_ap_client_active = "ap" == wifi_mode and wifi_ap_client_seen ~= nil
          and (os.time() - wifi_ap_client_seen) < 30,
       wifi_last_error = wifi_last_error,
@@ -1042,10 +1054,104 @@ local function save_wifi_config(wifi_patch)
    return true
 end
 
+local function init_wifi_jumper()
+   if not (esp32 and esp32.gpio) then
+      wifi_jumper_error = "GPIO API unavailable"
+      return
+   end
+   local out_pin = cfg.pins and cfg.pins.ap_jumper_out
+   local in_pin = cfg.pins and cfg.pins.ap_jumper_in
+   if not out_pin or not in_pin then
+      wifi_jumper_error = "jumper pins not configured"
+      return
+   end
+   local ok, out = pcall(esp32.gpio, out_pin, "OUT")
+   if not ok or not out then
+      wifi_jumper_error = tostring(out)
+      return
+   end
+   local in_ok, inp = pcall(esp32.gpio, in_pin, "IN", { pullup = true })
+   if not in_ok or not inp then
+      wifi_jumper_error = tostring(inp)
+      pcall(out.close, out)
+      return
+   end
+   local driven, drive_err = pcall(out.value, out, false)
+   if not driven then
+      wifi_jumper_error = tostring(drive_err)
+      pcall(inp.close, inp)
+      pcall(out.close, out)
+      return
+   end
+   wifi_jumper_out = out
+   wifi_jumper_in = inp
+   wifi_jumper_error = nil
+end
+
+local function read_wifi_jumper()
+   if not wifi_jumper_in then
+      return nil
+   end
+   local ok, value = pcall(wifi_jumper_in.value, wifi_jumper_in)
+   if not ok then
+      wifi_jumper_error = tostring(value)
+      return nil
+   end
+   wifi_jumper_error = nil
+   return wifi_policy.jumper_closed(value)
+end
+
+local function update_wifi_jumper()
+   local closed = read_wifi_jumper()
+   if nil == closed then
+      return
+   end
+   if closed and not wifi_jumper_closed then
+      wifi_jumper_latched = true
+      trace("thermostat: wifi: AP jumper closed")
+   elseif not closed and wifi_jumper_closed then
+      trace("thermostat: wifi: AP jumper open, staying in AP")
+   end
+   wifi_jumper_closed = closed
+end
+
+local function wifi_enter_ap(reason)
+   wifi_connect_deadline = nil
+   if "ap" == wifi_mode and wifi_connected then
+      return true
+   end
+   schedule_wifi_switch(1500, function()
+      if not (esp32 and esp32.netconnect) then
+         return
+      end
+      if "ap" == wifi_mode and wifi_connected then
+         return
+      end
+      local ok, err = pcall(esp32.netconnect, "wifi")
+      if not ok then
+         wifi_last_error = tostring(err)
+         trace("thermostat: wifi ap:", wifi_last_error)
+      else
+         trace("thermostat: wifi: entering AP (" .. tostring(reason) .. ")")
+      end
+   end)
+   return true
+end
+
 local function start_sta(ssid, password)
-   wifi_connect_deadline = os.time() + (cfg.wifi.connect_timeout_sec or 60)
+   if cfg.wifi.sta_confirmed then
+      wifi_connect_deadline = nil
+   else
+      wifi_connect_deadline = os.time() + (cfg.wifi.connect_timeout_sec or 60)
+   end
    wifi_last_error = nil
    schedule_wifi_switch(2000, function()
+      if wifi_jumper_closed or wifi_jumper_latched then
+         return
+      end
+      if "ap" == (cfg.wifi.mode or "auto") then
+         return
+      end
       if esp32 and esp32.netconnect then
          local ok, err = pcall(esp32.netconnect, "wifi", { ssid = ssid, pwd = password })
          if not ok then
@@ -1054,6 +1160,19 @@ local function start_sta(ssid, password)
          end
       end
    end)
+end
+
+local function start_saved_sta()
+   local wifi = cfg.wifi or {}
+   if not wifi_policy.sta_configured(cfg) then
+      return false, "Сохранённая сеть отсутствует."
+   end
+   local password, err = decrypt_wifi_password(wifi.sta_password_enc)
+   if not password then
+      return false, "Не удалось расшифровать пароль: " .. tostring(err)
+   end
+   start_sta(wifi.sta_ssid, password)
+   return true, { mode = "sta", ssid = wifi.sta_ssid }
 end
 
 function wifi_connect(ssid, password)
@@ -1070,38 +1189,43 @@ function wifi_connect(ssid, password)
       return false, "Не удалось сохранить пароль: " .. tostring(err)
    end
    local ok, save_err = save_wifi_config({
-      mode = "sta",
+      mode = "auto",
       sta_ssid = ssid,
       sta_password_enc = encrypted,
+      sta_confirmed = false,
       connect_timeout_sec = cfg.wifi.connect_timeout_sec or 60,
    })
    if not ok then
       return false, save_err
    end
+   if wifi_jumper_closed then
+      return true, { mode = "ap", ssid = ssid, deferred = true }
+   end
+   wifi_jumper_latched = false
    start_sta(ssid, password)
    return true, { mode = "sta", ssid = ssid }
 end
 
 function wifi_use_saved()
    local wifi = cfg.wifi or {}
-   if "" == (wifi.sta_ssid or "") or "" == (wifi.sta_password_enc or "") then
+   if not wifi_policy.sta_configured(cfg) then
       return false, "Сохранённая сеть отсутствует."
    end
-   local password, err = decrypt_wifi_password(wifi.sta_password_enc)
-   if not password then
-      return false, "Не удалось расшифровать пароль: " .. tostring(err)
+   if wifi_jumper_closed then
+      return false, "Джампер AP замкнут. Снимите джампер и перезагрузите устройство."
    end
    local ok, save_err = save_wifi_config({
-      mode = "sta",
+      mode = "auto",
       sta_ssid = wifi.sta_ssid,
       sta_password_enc = wifi.sta_password_enc,
+      sta_confirmed = wifi.sta_confirmed and true or false,
       connect_timeout_sec = wifi.connect_timeout_sec or 60,
    })
    if not ok then
       return false, save_err
    end
-   start_sta(wifi.sta_ssid, password)
-   return true, { mode = "sta", ssid = wifi.sta_ssid }
+   wifi_jumper_latched = false
+   return start_saved_sta()
 end
 
 function wifi_switch_ap()
@@ -1109,40 +1233,31 @@ function wifi_switch_ap()
       mode = "ap",
       sta_ssid = cfg.wifi.sta_ssid or "",
       sta_password_enc = cfg.wifi.sta_password_enc or "",
+      sta_confirmed = cfg.wifi.sta_confirmed and true or false,
       connect_timeout_sec = cfg.wifi.connect_timeout_sec or 60,
    })
    if not ok then
       return false, err
    end
-   wifi_connect_deadline = nil
-   schedule_wifi_switch(2000, function()
-      if "sta" == wifi_mode and esp32 and esp32.netconnect then
-         local connected, conn_err = pcall(esp32.netconnect, "wifi")
-         if not connected then
-            wifi_last_error = tostring(conn_err)
-            trace("thermostat: wifi ap:", wifi_last_error)
-         end
-      end
-   end)
+   wifi_enter_ap("manual")
    return true
 end
 
 function wifi_forget()
    local ok, err = save_wifi_config({
-      mode = "ap",
+      mode = "auto",
       sta_ssid = "",
       sta_password_enc = "",
+      sta_confirmed = false,
       connect_timeout_sec = cfg.wifi.connect_timeout_sec or 60,
    })
    if not ok then
       return false, err
    end
-   wifi_connect_deadline = nil
-   schedule_wifi_switch(2000, function()
-      if "sta" == wifi_mode and esp32 and esp32.netconnect then
-         pcall(esp32.netconnect, "wifi")
-      end
-   end)
+   if not wifi_jumper_closed then
+      wifi_jumper_latched = false
+   end
+   wifi_enter_ap("forget")
    return true
 end
 
@@ -1173,30 +1288,50 @@ function wifi_scan()
 end
 
 local function apply_wifi_config()
-   local wifi = cfg.wifi or {}
-   if "ap" == wifi.mode then
-      schedule_wifi_switch(1500, function()
-         if "sta" == wifi_mode and esp32 and esp32.netconnect then
-            pcall(esp32.netconnect, "wifi")
+   local desired, reason = wifi_policy.desired(cfg, wifi_jumper_closed, wifi_jumper_latched)
+   if "ap" == desired then
+      trace("thermostat: wifi: AP (" .. tostring(reason) .. ")")
+      wifi_enter_ap(reason)
+      return
+   end
+   local ok, result = start_saved_sta()
+   if not ok then
+      trace("thermostat: wifi: cannot start STA:", tostring(result))
+      wifi_enter_ap("sta_error")
+   end
+end
+
+local function mark_sta_confirmed()
+   if cfg.wifi.sta_confirmed or not wifi_policy.sta_configured(cfg) then
+      return
+   end
+   local ok, err = save_wifi_config({
+      mode = "auto",
+      sta_confirmed = true,
+   })
+   if not ok then
+      cfg.wifi.sta_confirmed = true
+      cfg.wifi.mode = "auto"
+      trace("thermostat: wifi: cannot persist STA confirmation:", tostring(err))
+   else
+      trace("thermostat: wifi: STA confirmed")
+   end
+end
+
+local function wifi_monitor_loop()
+   local next_check = ba.clock()
+   while true do
+      local now = ba.clock()
+      if now >= next_check then
+         next_check = now + 10000
+         local was = wifi_jumper_closed
+         update_wifi_jumper()
+         if true == wifi_jumper_closed and true ~= was then
+            wifi_enter_ap("jumper")
          end
-      end)
-      return
+      end
+      coroutine.yield(true)
    end
-   if "sta" ~= wifi.mode then
-      return
-   end
-   if "" == (wifi.sta_ssid or "") or "" == (wifi.sta_password_enc or "") then
-      trace("thermostat: wifi: saved STA credentials are missing")
-      wifi_switch_ap()
-      return
-   end
-   local password, err = decrypt_wifi_password(wifi.sta_password_enc)
-   if not password then
-      trace("thermostat: wifi: cannot decrypt STA password:", tostring(err))
-      wifi_switch_ap()
-      return
-   end
-   start_sta(wifi.sta_ssid, password)
 end
 
 local function restart_mqtt()
@@ -1284,7 +1419,16 @@ function onunload()
    cancel_timer(history_timer)
    cancel_timer(led_timer)
    cancel_timer(manual_timer)
+   cancel_timer(wifi_jumper_timer)
    cancel_wifi_switch()
+   if wifi_jumper_in then
+      pcall(function() wifi_jumper_in:close() end)
+      wifi_jumper_in = nil
+   end
+   if wifi_jumper_out then
+      pcall(function() wifi_jumper_out:close() end)
+      wifi_jumper_out = nil
+   end
    if mqtt_bridge then
       mqtt_bridge:stop()
    end
@@ -1315,6 +1459,10 @@ if xedge and xedge.event then
          if wifi_sta_connected then
             wifi_connect_deadline = nil
             wifi_last_error = nil
+            if not wifi_jumper_closed and not wifi_jumper_latched
+               and "ap" ~= (cfg.wifi.mode or "auto") then
+               mark_sta_confirmed()
+            end
          end
       elseif "ap" == wifi_mode then
          wifi_sta_connected = false
@@ -1342,6 +1490,11 @@ pump_meter_state = state.pump
 history_next_room = ba.clock() + 1000
 history_next_pump = ba.clock() + 1000
 restart_mqtt()
+init_wifi_jumper()
+wifi_jumper_closed = read_wifi_jumper()
+if wifi_jumper_closed then
+   wifi_jumper_latched = true
+end
 apply_wifi_config()
 
 -- Xedge timers stop when the callback returns. Repeating work must yield.
@@ -1349,9 +1502,11 @@ local function control_loop()
    while true do
       if wifi_connect_deadline and not wifi_sta_connected and os.time() >= wifi_connect_deadline then
          wifi_connect_deadline = nil
-         wifi_last_error = "STA connection timeout"
-         trace("thermostat: wifi: STA timeout, switching to AP")
-         wifi_switch_ap()
+         if wifi_policy.should_fallback(cfg) then
+            wifi_last_error = "STA connection timeout"
+            trace("thermostat: wifi: STA timeout, switching to AP")
+            wifi_enter_ap("unconfirmed_timeout")
+         end
       end
       if (scan_running or scan_requested) and (os.time() - scan_started) > 20 then
          scan_running = false
@@ -1389,6 +1544,9 @@ history_timer:set(1000)
 
 led_timer = ba.timer(led_loop)
 led_timer:set(100)
+
+wifi_jumper_timer = ba.timer(wifi_monitor_loop)
+wifi_jumper_timer:set(1000)
 
 apply_led()
 

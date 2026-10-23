@@ -82,11 +82,29 @@ if "POST" == request:method() and csrf_ok then
 end
 
 local cfg = app.get_config()
+local st = app.get_state()
 local c = cfg.control
 local s = cfg.schedule
 local m = cfg.mqtt
 local ui = cfg.ui
 local function checked(v) return v and "checked" or "" end
+
+local wifi_mode_text = st.wifi_mode or "—"
+if "sta" == wifi_mode_text then
+   wifi_mode_text = st.wifi_sta_connected and "STA, подключено" or "STA, нет подключения"
+elseif "ap" == wifi_mode_text then
+   wifi_mode_text = "AP"
+end
+local jumper_text = "недоступен"
+if st.ap_jumper_available then
+   if true == st.ap_jumper_closed then
+      jumper_text = "замкнут"
+   elseif false == st.ap_jumper_closed then
+      jumper_text = "разомкнут"
+   else
+      jumper_text = "неизвестно"
+   end
+end
 
 local current_offset = app.rounded_utc_offset(s.utc_offset_minutes or 0)
 local offset_abs = math.abs(current_offset)
@@ -117,6 +135,21 @@ end
 </header>
 
 <?lsp if message then ?><section class="banner <?lsp=message_kind?>"><?lsp=message?></section><?lsp end ?>
+
+<section class="card">
+  <h2>Wi-Fi</h2>
+  <p>Режим: <strong><?lsp=wifi_mode_text?></strong></p>
+  <p>Джампер AP: <strong><?lsp=jumper_text?></strong></p>
+  <p>STA настроен: <strong><?lsp=st.wifi_has_credentials and "да" or "нет"?></strong></p>
+  <p>STA подтверждён: <strong><?lsp=st.wifi_sta_confirmed and "да" or "нет"?></strong></p>
+  <?lsp if st.ap_jumper_latched and not st.ap_jumper_closed then ?>
+    <p class="banner">AP удерживается после снятия джампера до перезагрузки или ручного переключения в STA.</p>
+  <?lsp end ?>
+  <?lsp if st.ap_jumper_error then ?>
+    <p class="banner error">Джампер AP: <?lsp=st.ap_jumper_error?></p>
+  <?lsp end ?>
+  <p><a href="/admin/wifi.lsp">Настроить Wi-Fi</a></p>
+</section>
 
 <form method="post" class="card">
   <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">

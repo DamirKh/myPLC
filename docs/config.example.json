@@ -8,7 +8,9 @@
     "ssr_active_high": true,
     "rgb": 48,
     "rgb_enabled": true,
-    "rgb_brightness": 0.25
+    "rgb_brightness": 0.25,
+    "ap_jumper_out": 10,
+    "ap_jumper_in": 11
   },
   "control": {
     "target_room": 22.0,
@@ -45,6 +47,7 @@
     "mode": "auto",
     "sta_ssid": "",
     "sta_password_enc": "",
+    "sta_confirmed": false,
     "connect_timeout_sec": 60
   },
   "history": {

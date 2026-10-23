@@ -13,6 +13,22 @@ return function(t)
       t.assert_false(ok)
    end)
 
+   t.test("AP jumper pins must be valid and unique", function()
+      local cfg = config.defaults()
+      cfg.pins.ap_jumper_in = cfg.pins.ap_jumper_out
+      t.assert_false(config.validate(cfg))
+
+      cfg = config.defaults()
+      cfg.pins.ap_jumper_in = cfg.pins.ssr
+      t.assert_false(config.validate(cfg))
+   end)
+
+   t.test("STA confirmation must be a boolean", function()
+      local cfg = config.defaults()
+      cfg.wifi.sta_confirmed = "yes"
+      t.assert_false(config.validate(cfg))
+   end)
+
    t.test("control ready with both pairs", function()
       local cfg = config.defaults()
       config.set_sensor(cfg, "control_a", "28AABBCCDDEEFF00", "room", "A room", 0)
