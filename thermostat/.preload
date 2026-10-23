@@ -338,14 +338,23 @@ end
 
 local function history_sample()
    local s = build_state()
+   local sensors = {}
+   for _, item in ipairs(snapshot.diagnostics or {}) do
+      if item.ok and "number" == type(item.temp) then
+         sensors[item.key] = item.temp
+      end
+   end
    return {
       t = s.time,
       room = s.room,
       floor = s.floor,
       supply = s.supply,
       return_temp = s.return_temp,
+      pump_temp = s.pump_temp,
       pump = s.pump,
       target = s.target,
+      floor_limit = s.floor_limit,
+      sensors = sensors,
    }
 end
 

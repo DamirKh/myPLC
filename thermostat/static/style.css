@@ -29,6 +29,18 @@
    --chart-room: #2563eb;
    --chart-floor: #f59e0b;
    --chart-supply: #dc2626;
+   --chart-return: #16a34a;
+   --chart-pump: #9333ea;
+   --chart-target: #64748b;
+   --chart-limit: #b45309;
+   --chart-1: #2563eb;
+   --chart-2: #f59e0b;
+   --chart-3: #dc2626;
+   --chart-4: #16a34a;
+   --chart-5: #9333ea;
+   --chart-6: #0891b2;
+   --chart-7: #db2777;
+   --chart-8: #64748b;
    --chart-grid: #d7dee8;
    --lcd-bg: rgba(248, 250, 252, 0.72);
    --lcd-border: #cbd5e1;
@@ -72,6 +84,18 @@ html[data-theme="dark"] {
    --chart-room: #60a5fa;
    --chart-floor: #fbbf24;
    --chart-supply: #f87171;
+   --chart-return: #4ade80;
+   --chart-pump: #c084fc;
+   --chart-target: #94a3b8;
+   --chart-limit: #fbbf24;
+   --chart-1: #60a5fa;
+   --chart-2: #fbbf24;
+   --chart-3: #f87171;
+   --chart-4: #4ade80;
+   --chart-5: #c084fc;
+   --chart-6: #22d3ee;
+   --chart-7: #f472b6;
+   --chart-8: #94a3b8;
    --chart-grid: rgba(148, 163, 184, 0.25);
    --lcd-bg: #07160f;
    --lcd-border: #1f513b;
@@ -639,6 +663,52 @@ html[data-view="full"] .details-card > .details-body {
 
 .sensor-actions {
    margin-top: 16px;
+}
+
+.chart-head {
+   display: flex;
+   flex-wrap: wrap;
+   justify-content: space-between;
+   align-items: center;
+   gap: 12px;
+}
+
+.chart-head h2 {
+   margin-bottom: 0;
+}
+
+.chart-select {
+   max-width: 240px;
+}
+
+.chart-legend {
+   display: flex;
+   flex-wrap: wrap;
+   gap: 8px 16px;
+   margin-top: 10px;
+   font-size: 13px;
+   color: var(--muted);
+}
+
+.chart-legend-item {
+   display: inline-flex;
+   align-items: center;
+   gap: 6px;
+}
+
+.chart-legend-item input {
+   width: auto;
+}
+
+.chart-swatch {
+   display: inline-block;
+   width: 16px;
+   height: 3px;
+   border-radius: 2px;
+}
+
+.chart-legend-item.dashed .chart-swatch {
+   background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px);
 }
 
 .sensor-status {
