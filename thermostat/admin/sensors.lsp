@@ -27,6 +27,10 @@ if "POST" == request:method() and csrf_ok then
       local status = result and result.status or "queued"
       response:sendredirect("/admin/sensors.lsp?scan=" .. status)
       return
+   elseif "reset_hours" == action then
+      local ok = app.reset_pump_hours()
+      response:sendredirect("/admin/sensors.lsp?" .. (ok and "hours=1" or "err=hours"))
+      return
    elseif "apply" == action then
       local decoded, rows = pcall(ba.json.decode, request:data("payload") or "")
       if not decoded or "table" ~= type(rows) then
@@ -63,6 +67,8 @@ if scan_note then
 end
 if "1" == request:data("saved") then
    message = "Изменения применены."
+elseif "1" == request:data("hours") then
+   message = "Моточасы насоса сброшены."
 elseif request:data("err") then
    message = "Не удалось применить изменения. Проверьте роли, ROM и конфигурацию."
    message_kind = "error"
@@ -70,6 +76,7 @@ end
 
 local service = app.service_mode_enabled()
 local sensor_table = app.get_sensor_table()
+local pump_hours = app.get_state().pump_hours
 local roles = {
    { "", "не назначена" },
    { "room", "room — воздух" },
@@ -163,12 +170,20 @@ end
     </div>
   </div>
   <?lsp if service then ?>
-  <form method="post" class="row" style="margin-top:16px">
-    <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">
-    <input type="hidden" name="action" value="scan">
-    <button type="submit" class="secondary">Пересканировать шины</button>
+  <div class="row" style="margin-top:16px">
+    <form method="post" class="inline">
+      <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">
+      <input type="hidden" name="action" value="scan">
+      <button type="submit" class="secondary">Пересканировать шины</button>
+    </form>
+    <form method="post" class="inline" onsubmit="return confirm('Сбросить моточасы насоса?')">
+      <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">
+      <input type="hidden" name="action" value="reset_hours">
+      <button type="submit" class="secondary">Сбросить моточасы</button>
+    </form>
+    <span class="muted">Моточасы: <?lsp=("number" == type(pump_hours)) and string.format("%.1f ч", pump_hours) or "—"?></span>
     <?lsp if sensor_table.scan_active then ?><span class="muted">Идёт сканирование…</span><?lsp end ?>
-  </form>
+  </div>
   <?lsp end ?>
 </section>
 

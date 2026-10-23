@@ -115,6 +115,7 @@
         Насос
       </span>
       <strong id="pump" class="value">—</strong>
+      <span id="pumpHours" class="muted full-only">наработка —</span>
       <span id="reason" class="muted full-only"></span>
     </article>
   </section>
@@ -159,6 +160,7 @@
         <div class="detail-row">
           <span>Подача: <strong id="supply">—</strong></span>
           <span>Обратка: <strong id="returnTemp">—</strong></span>
+          <span>Моточасы: <strong id="pumpHoursDetail">—</strong></span>
         </div>
       </section>
 
@@ -447,6 +449,9 @@ async function refresh() {
       $('pump').textContent = s.pump ? 'ВКЛ' : 'ВЫКЛ';
       $('pump').className = 'value ' + (s.pump ? 'on' : 'off');
       $('reason').textContent = s.last_reason || '';
+      const pumpHours = typeof s.pump_hours === 'number' ? s.pump_hours.toFixed(1) + ' ч' : '—';
+      $('pumpHours').textContent = 'наработка ' + pumpHours;
+      if ($('pumpHoursDetail')) $('pumpHoursDetail').textContent = pumpHours;
       $('room').textContent = fmt(s.room);
       $('floor').textContent = fmt(s.floor);
       $('supply').textContent = fmt(s.supply);

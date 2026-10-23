@@ -61,10 +61,16 @@ local DEFAULTS = {
       ha_discovery = false,
    },
    history = {
-      sample_sec = 60,
-      ram_hours = 48,
-      flash_sample_sec = 300,
-      max_bytes = 1048576,
+      room = {
+         sample_sec = 600,
+         retention_sec = 604800,
+         max_bytes = 163840,
+      },
+      pump = {
+         sample_sec = 180,
+         retention_sec = 86400,
+         max_bytes = 196608,
+      },
    },
    ui = {
       public_setpoint = true,
@@ -301,6 +307,24 @@ function M.validate(cfg)
    end
    if "sta" == wifi.mode and ("" == wifi.sta_ssid or "" == wifi.sta_password_enc) then
       errors[#errors + 1] = "wifi.sta credentials are required in sta mode"
+   end
+
+   local history = cfg.history or {}
+   for _, stream in ipairs({ "room", "pump" }) do
+      local item = history[stream]
+      if "table" ~= type(item) then
+         errors[#errors + 1] = "history." .. stream .. " must be a table"
+      else
+         if not is_number(item.sample_sec) or item.sample_sec < 10 or item.sample_sec > 86400 then
+            errors[#errors + 1] = "history." .. stream .. ".sample_sec out of range"
+         end
+         if not is_number(item.retention_sec) or item.retention_sec < 60 or item.retention_sec > 2592000 then
+            errors[#errors + 1] = "history." .. stream .. ".retention_sec out of range"
+         end
+         if not is_number(item.max_bytes) or item.max_bytes < 4096 or item.max_bytes > 4194304 then
+            errors[#errors + 1] = "history." .. stream .. ".max_bytes out of range"
+         end
+      end
    end
 
    local ui = cfg.ui or {}

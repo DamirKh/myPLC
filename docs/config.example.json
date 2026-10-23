@@ -48,10 +48,16 @@
     "connect_timeout_sec": 60
   },
   "history": {
-    "sample_sec": 60,
-    "ram_hours": 48,
-    "flash_sample_sec": 300,
-    "max_bytes": 1048576
+    "room": {
+      "sample_sec": 600,
+      "retention_sec": 604800,
+      "max_bytes": 163840
+    },
+    "pump": {
+      "sample_sec": 180,
+      "retention_sec": 86400,
+      "max_bytes": 196608
+    }
   },
   "ui": {
     "public_setpoint": true,

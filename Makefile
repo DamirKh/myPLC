@@ -25,7 +25,7 @@ package:
 	rm -rf build
 	mkdir -p build
 	cd thermostat && zip -D -q -u -r -9 ../build/thermostat.zip . \
-		-x 'config.json' 'history.jsonl' 'userdb.encrypted'
+		-x 'config.json' 'history.jsonl' 'history_room.jsonl' 'history_pump.jsonl' 'runtime.json' 'userdb.encrypted'
 	@echo "built build/thermostat.zip"
 
 clean:

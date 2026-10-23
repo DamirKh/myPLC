@@ -52,6 +52,19 @@ return function(t)
       t.assert_true(ok, table.concat(errors or {}, ", "))
    end)
 
+   t.test("history stream settings are validated", function()
+      local cfg = config.defaults()
+      local ok = config.validate(cfg)
+      t.assert_true(ok)
+      cfg.history.room.sample_sec = 1
+      ok = config.validate(cfg)
+      t.assert_false(ok)
+      cfg = config.defaults()
+      cfg.history.pump.max_bytes = 100
+      ok = config.validate(cfg)
+      t.assert_false(ok)
+   end)
+
    t.test("missing roles are warnings not errors", function()
       local cfg = config.defaults()
       local ok, errors, warnings = config.validate(cfg)
