@@ -17,6 +17,7 @@ function M.new(cfg)
       last = {},
       last_cycle = nil,
       scan_result = nil,
+      discovered = {},
    }, M)
 end
 
@@ -84,6 +85,45 @@ local function group_by_bus(cfg)
    return map
 end
 
+local function sensor_key(bus, rom)
+   return bus .. ":" .. tostring(rom):upper()
+end
+
+function M:record(bus, rom, data, err, now)
+   local key = sensor_key(bus, rom)
+   local sensor = self.cfg.sensors and self.cfg.sensors[key] or { offset = 0 }
+   local item = { key = key, sensor = sensor }
+   if data then
+      self:set_ok(item, data, now)
+   else
+      self:set_failure(item, err or "read failed", now)
+   end
+end
+
+function M:read_bus(name, roms, now)
+   local bus, open_err = self:open_bus(name)
+   if not bus then
+      for _, rom in ipairs(roms) do
+         self:record(name, rom, nil, open_err, now)
+      end
+      return open_err
+   end
+   local ok, convert_err = ds.start_convert(bus, nil)
+   if not ok then
+      for _, rom in ipairs(roms) do
+         self:record(name, rom, nil, convert_err or "convert_failed", now)
+      end
+   else
+      sleep(800)
+      for _, rom in ipairs(roms) do
+         local data, read_err = self:read_one(bus, rom)
+         self:record(name, rom, data, read_err, now)
+      end
+   end
+   bus:close()
+   return nil
+end
+
 function M:read_cycle()
    local cfg = self.cfg
    local now = os.time()
@@ -93,31 +133,13 @@ function M:read_cycle()
    for _, name in ipairs(BUS_NAMES) do
       local list = map[name]
       if list and #list > 0 then
-         local bus, open_err = self:open_bus(name)
-         if not bus then
-            errors[name] = open_err
-            for _, item in ipairs(list) do
-               self:set_failure(item, open_err, now)
-            end
-         else
-            local ok, convert_err = ds.start_convert(bus, nil)
-            if not ok then
-               errors[name] = convert_err or "convert_failed"
-               for _, item in ipairs(list) do
-                  self:set_failure(item, errors[name], now)
-               end
-            else
-               sleep(800)
-               for _, item in ipairs(list) do
-                  local data, read_err = self:read_one(bus, item.sensor.rom)
-                  if data then
-                     self:set_ok(item, data, now)
-                  else
-                     self:set_failure(item, read_err or "read failed", now)
-                  end
-               end
-            end
-            bus:close()
+         local roms = {}
+         for _, item in ipairs(list) do
+            roms[#roms + 1] = item.sensor.rom
+         end
+         local err = self:read_bus(name, roms, now)
+         if err then
+            errors[name] = err
          end
       end
    end
@@ -126,8 +148,29 @@ function M:read_cycle()
    return errors
 end
 
+function M:read_service()
+   local now = os.time()
+   for _, name in ipairs(BUS_NAMES) do
+      local roms = self.discovered[name]
+      if roms and #roms > 0 then
+         self:read_bus(name, roms, now)
+      end
+   end
+   self.last_cycle = now
+end
+
+function M:has_discovered()
+   for _, name in ipairs(BUS_NAMES) do
+      if self.discovered[name] and #self.discovered[name] > 0 then
+         return true
+      end
+   end
+   return false
+end
+
 function M:scan_all()
    local result = { buses = {}, errors = {} }
+   local now = os.time()
    for _, name in ipairs(BUS_NAMES) do
       local bus, open_err = self:open_bus(name)
       if not bus then
@@ -135,12 +178,22 @@ function M:scan_all()
       else
          local entry = { name = name, roms = {} }
          local roms = ds.search(bus)
+         self.discovered[name] = roms
+         local converted, convert_err = true, nil
          if #roms > 0 then
-            ds.start_convert(bus, nil)
-            sleep(800)
+            converted, convert_err = ds.start_convert(bus, nil)
+            if converted then
+               sleep(800)
+            end
          end
          for _, rom in ipairs(roms) do
-            local data, err = self:read_one(bus, rom)
+            local data, err
+            if converted then
+               data, err = self:read_one(bus, rom)
+            else
+               err = convert_err or "convert_failed"
+            end
+            self:record(name, rom, data, err, now)
             entry.roms[#entry.roms + 1] = {
                rom = rom,
                temp = data and data.temp or nil,
@@ -162,6 +215,30 @@ local function add_unique(t, value)
       end
    end
    t[#t + 1] = value
+end
+
+local function avg_value(t)
+   if #t == 0 then
+      return nil
+   end
+   local sum = 0
+   for _, value in ipairs(t) do
+      sum = sum + value
+   end
+   return sum / #t
+end
+
+local function max_value(t)
+   if #t == 0 then
+      return nil
+   end
+   local value = t[1]
+   for i = 2, #t do
+      if t[i] > value then
+         value = t[i]
+      end
+   end
+   return value
 end
 
 function M:snapshot(now)
@@ -209,6 +286,24 @@ function M:snapshot(now)
       out.diagnostics[#out.diagnostics + 1] = item
       out.raw[key] = item
    end
+
+   local function role_values(role)
+      local values = {}
+      for _, item in ipairs(out.diagnostics) do
+         if item.ok and item.role == role then
+            values[#values + 1] = item.temp
+         end
+      end
+      return values
+   end
+
+   out.actual = {
+      room = avg_value(out.rooms),
+      floor = max_value(out.floors),
+      supply = avg_value(role_values("supply")),
+      return_temp = avg_value(role_values("return")),
+      pump = avg_value(role_values("pump")),
+   }
 
    if #out.rooms > 0 and #out.floors > 0 then
       local rmin, rmax = out.rooms[1], out.rooms[1]

@@ -108,6 +108,7 @@ local override = nil
 local manual_pump = false
 local manual_timer = nil
 local service_mode = false
+local scan_mode = false
 local scan_requested = false
 local scan_running = false
 local scan_started = 0
@@ -137,35 +138,8 @@ local function cancel_timer(timer)
    end
 end
 
-local function max_value(t)
-   local v = t[1]
-   for i = 2, #t do
-      if t[i] > v then
-         v = t[i]
-      end
-   end
-   return v
-end
-
-local function avg_value(t)
-   if #t == 0 then
-      return nil
-   end
-   local sum = 0
-   for _, v in ipairs(t) do
-      sum = sum + v
-   end
-   return sum / #t
-end
-
-local function role_temp(snap, role)
-   local values = {}
-   for _, item in ipairs(snap.diagnostics or {}) do
-      if item.ok and item.role == role then
-         values[#values + 1] = item.temp
-      end
-   end
-   return avg_value(values)
+local function trim(text)
+   return tostring(text or ""):match("^%s*(.-)%s*$")
 end
 
 local function node_id()
@@ -192,11 +166,11 @@ local function build_state()
       override_active = override ~= nil and override.expires ~= nil and override.expires > os.time(),
       override_until = (override and override.expires and override.expires > os.time()) and override.expires or nil,
       floor_limit = cfg.control.floor_limit,
-      room = avg_value(snapshot.rooms),
-      floor = (#snapshot.floors > 0) and max_value(snapshot.floors) or nil,
-      supply = role_temp(snapshot, "supply"),
-      return_temp = role_temp(snapshot, "return"),
-      pump_temp = role_temp(snapshot, "pump"),
+      room = snapshot.actual.room,
+      floor = snapshot.actual.floor,
+      supply = snapshot.actual.supply,
+      return_temp = snapshot.actual.return_temp,
+      pump_temp = snapshot.actual.pump,
       faults = state.faults,
       warnings = state.warnings,
       sensors = snapshot.diagnostics,
@@ -220,6 +194,7 @@ local function build_state()
       pin_configured = pin_is_configured(),
       pin_available = pin_key ~= nil,
       service_mode = service_mode,
+      scan_active = scan_mode or scan_requested or scan_running,
       last_reason = state.last_reason,
    }
 end
@@ -242,7 +217,7 @@ local function apply_led()
    local color = indicator.frame({
       boot = os.time() < boot_until,
       fault = #state.faults > 0,
-      service = service_mode,
+      service = service_mode or scan_mode,
       wifi = wifi_connected,
       wifi_mode = wifi_mode,
       wifi_sta_connected = wifi_sta_connected,
@@ -275,7 +250,7 @@ local function apply_control()
       schedule_target = scheduled,
       mode = state.mode,
       manual_pump = manual_pump,
-      force_off = service_mode,
+      force_off = service_mode or scan_mode,
    }
    state = controller.step(state, inputs, cfg, now)
    ssr_write(state.pump)
@@ -288,15 +263,19 @@ local sensor_stopping = false
 
 local function sensor_worker_main()
    while not sensor_stopping do
-      if not service_mode and not scan_requested and not scan_running then
+      if not scan_requested and not scan_running then
          -- Never wrap yielding RMT calls in pcall; Xedge32 rejects yields
          -- across a C-call boundary.
          sensor_busy = true
-         sensor_mgr:read_cycle()
+         if service_mode and sensor_mgr:has_discovered() then
+            sensor_mgr:read_service()
+         else
+            sensor_mgr:read_cycle()
+         end
          sensor_busy = false
          snapshot = sensor_mgr:snapshot(os.time())
       end
-      ba.sleep(10000)
+      ba.sleep(service_mode and 1000 or 10000)
    end
 end
 
@@ -330,15 +309,14 @@ local function scan_job()
          scan_requested = false
          scan_running = true
          scan_started = os.time()
-         service_mode = true
+         scan_mode = true
          scan_result = nil
          apply_control()
          trace("thermostat: scan started")
          scan_result = sensor_mgr:scan_all()
-         sensor_mgr:read_cycle()
          snapshot = sensor_mgr:snapshot(os.time())
          scan_running = false
-         service_mode = false
+         scan_mode = false
          apply_control()
          trace("thermostat: scan done")
          return
@@ -624,6 +602,95 @@ function get_scan_result()
    return scan_result
 end
 
+function get_sensor_table()
+   local now = os.time()
+   local stale_after = cfg.control.stale_after_sec or 20
+   local names = { "diag", "control_a", "control_b" }
+   local buses = {}
+   local by_name = {}
+   for _, name in ipairs(names) do
+      local entry = { name = name, pin = cfg.pins[name], sensors = {} }
+      buses[#buses + 1] = entry
+      by_name[name] = entry
+   end
+
+   local seen = {}
+   local function add(bus, rom)
+      local entry = by_name[bus]
+      if not entry then
+         return
+      end
+      rom = tostring(rom):upper()
+      local key = bus .. ":" .. rom
+      if seen[key] then
+         return
+      end
+      seen[key] = true
+
+      local sensor = cfg.sensors and cfg.sensors[key]
+      local last = sensor_mgr.last[key]
+      local discovered = sensor_mgr.discovered[bus]
+      local present = nil
+      if discovered then
+         present = false
+         for _, found in ipairs(discovered) do
+            if tostring(found):upper() == rom then
+               present = true
+               break
+            end
+         end
+      end
+
+      local item = {
+         key = key,
+         bus = bus,
+         rom = rom,
+         role = sensor and sensor.role or nil,
+         label = sensor and sensor.label or "",
+         offset = sensor and sensor.offset or 0,
+         assigned = sensor ~= nil,
+         present = present,
+         temp = last and last.temp or nil,
+         ts = last and last.ts or nil,
+         ok = false,
+         stale = true,
+         err = last and last.err or (sensor and "not_read" or nil),
+      }
+
+      if present == false then
+         item.err = "not_found"
+      elseif last and last.ok and last.ts and (now - last.ts) <= stale_after then
+         item.ok = true
+         item.stale = false
+         item.err = nil
+      end
+
+      entry.sensors[#entry.sensors + 1] = item
+   end
+
+   for _, name in ipairs(names) do
+      for _, rom in ipairs(sensor_mgr.discovered[name] or {}) do
+         add(name, rom)
+      end
+   end
+   for _, sensor in pairs(cfg.sensors or {}) do
+      add(sensor.bus, sensor.rom)
+   end
+
+   for _, entry in ipairs(buses) do
+      table.sort(entry.sensors, function(a, b)
+         return a.rom < b.rom
+      end)
+   end
+
+   return {
+      ok = true,
+      service_mode = service_mode,
+      scan_active = scan_mode or scan_requested or scan_running,
+      buses = buses,
+   }
+end
+
 function get_history(range_sec)
    local items = hist:list()
    if range_sec then
@@ -708,7 +775,7 @@ function scan_sensors()
    scan_requested = true
    scan_started = os.time()
    scan_result = nil
-   service_mode = true
+   scan_mode = true
    apply_control()
    start_scan_job()
    return { status = "queued" }
@@ -720,11 +787,30 @@ function scan_status()
       requested = scan_requested,
       started = scan_started,
       sensor_busy = sensor_busy,
+      service = service_mode,
       result = scan_result,
    }
 end
 
+function service_mode_enabled()
+   return service_mode
+end
+
+function set_service_mode(on)
+   local enabled = on and true or false
+   service_mode = enabled
+   apply_control()
+   apply_led()
+   if enabled then
+      scan_sensors()
+   end
+   return true, enabled
+end
+
 function assign_sensor(bus, rom, role, label, offset)
+   if not service_mode then
+      return false, "service mode required"
+   end
    if not config.valid_role(role) then
       return false, "invalid role"
    end
@@ -732,7 +818,7 @@ function assign_sensor(bus, rom, role, label, offset)
       return false, "invalid bus"
    end
    local newcfg = config.merge(cfg, {})
-   config.set_sensor(newcfg, bus, rom, role, label, offset)
+   config.set_sensor(newcfg, bus, rom, role, trim(label), tonumber(offset) or 0)
    local ok, errors = config.validate(newcfg)
    if not ok then
       return false, errors
@@ -747,6 +833,9 @@ function assign_sensor(bus, rom, role, label, offset)
 end
 
 function remove_sensor(bus, rom)
+   if not service_mode then
+      return false, "service mode required"
+   end
    local newcfg = config.merge(cfg, {})
    config.remove_sensor(newcfg, bus, rom)
    local ok, errors = config.validate(newcfg)
@@ -760,10 +849,6 @@ function remove_sensor(bus, rom)
    cfg = newcfg
    sensor_mgr.cfg = cfg
    return true
-end
-
-local function trim(text)
-   return tostring(text or ""):match("^%s*(.-)%s*$")
 end
 
 local function cancel_wifi_switch()
@@ -1027,6 +1112,8 @@ end
 function onunload()
    sensor_stopping = true
    sensor_busy = false
+   service_mode = false
+   scan_mode = false
    ssr_write(false)
    cancel_timer(sensor_timer)
    cancel_timer(control_timer)
@@ -1102,7 +1189,7 @@ local function control_loop()
       if (scan_running or scan_requested) and (os.time() - scan_started) > 20 then
          scan_running = false
          scan_requested = false
-         service_mode = false
+         scan_mode = false
          if scan_job_timer then
             cancel_timer(scan_job_timer)
             scan_job_timer = nil

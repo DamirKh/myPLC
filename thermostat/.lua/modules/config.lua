@@ -198,7 +198,7 @@ end
 
 function M.control_ready(cfg)
    for _, bus in ipairs(CONTROL_BUSES) do
-      if 1 == M.count_role(cfg, bus, "room") and 1 == M.count_role(cfg, bus, "floor") then
+      if M.count_role(cfg, bus, "room") >= 1 and M.count_role(cfg, bus, "floor") >= 1 then
          return true, bus
       end
    end
@@ -357,13 +357,7 @@ function M.validate(cfg)
    for _, bus in ipairs(CONTROL_BUSES) do
       local rooms = M.count_role(cfg, bus, "room")
       local floors = M.count_role(cfg, bus, "floor")
-      if rooms > 1 then
-         errors[#errors + 1] = bus .. " has more than one room sensor"
-      end
-      if floors > 1 then
-         errors[#errors + 1] = bus .. " has more than one floor sensor"
-      end
-      if (rooms > 0 or floors > 0) and (rooms ~= 1 or floors ~= 1) then
+      if (rooms > 0 or floors > 0) and (rooms == 0 or floors == 0) then
          warnings[#warnings + 1] = bus .. " is not fully configured"
       end
    end

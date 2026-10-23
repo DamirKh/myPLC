@@ -566,6 +566,93 @@ html[data-view="full"] .details-card > .details-body {
    overflow-x: auto;
 }
 
+.service-head {
+   display: flex;
+   flex-wrap: wrap;
+   justify-content: space-between;
+   align-items: flex-start;
+   gap: 16px;
+}
+
+.service-head h2 {
+   margin-bottom: 4px;
+}
+
+.service-actions {
+   display: flex;
+   flex-wrap: wrap;
+   align-items: center;
+   gap: 10px;
+}
+
+.service-state {
+   display: inline-flex;
+   align-items: center;
+   padding: 4px 10px;
+   border-radius: 999px;
+   border: 1px solid var(--border);
+   font-size: 13px;
+}
+
+.service-state.on {
+   color: var(--ok);
+   border-color: var(--ok-border);
+   background: var(--ok-bg);
+}
+
+.service-state.off {
+   color: var(--muted);
+}
+
+.sensor-table th,
+.sensor-table td {
+   vertical-align: middle;
+}
+
+.sensor-table .bus-row th {
+   padding-top: 16px;
+   background: var(--code-bg);
+   color: var(--text);
+   font-size: 13px;
+}
+
+.sensor-table .bus-row:first-child th {
+   padding-top: 10px;
+}
+
+.sensor-rom {
+   white-space: nowrap;
+}
+
+.sensor-temp {
+   white-space: nowrap;
+   font-variant-numeric: tabular-nums;
+}
+
+.sensor-status {
+   font-size: 13px;
+}
+
+.sensor-status.ok {
+   color: var(--ok);
+}
+
+.sensor-status.error {
+   color: var(--error);
+}
+
+.sensor-table td.actions {
+   white-space: nowrap;
+}
+
+.sensor-label-input {
+   min-width: 120px;
+}
+
+.sensor-offset-input {
+   min-width: 80px;
+}
+
 body.setpoint-open {
    overflow: hidden;
 }
