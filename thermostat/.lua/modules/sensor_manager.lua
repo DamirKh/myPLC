@@ -135,6 +135,10 @@ function M:scan_all()
       else
          local entry = { name = name, roms = {} }
          local roms = ds.search(bus)
+         if #roms > 0 then
+            ds.start_convert(bus, nil)
+            sleep(800)
+         end
          for _, rom in ipairs(roms) do
             local data, err = self:read_one(bus, rom)
             entry.roms[#entry.roms + 1] = {
