@@ -157,6 +157,9 @@ end
 
 <section class="card">
   <h2>Доступные сети</h2>
+  <?lsp if "ap" == st.wifi_mode then ?>
+    <p class="muted">Сканирование недоступно в режиме AP. Введите SSID вручную ниже.</p>
+  <?lsp else ?>
   <form method="post">
     <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">
     <div class="row">
@@ -164,6 +167,7 @@ end
       <span class="muted">Если список пуст, введите SSID вручную ниже.</span>
     </div>
   </form>
+  <?lsp end ?>
 
   <?lsp if scan then ?>
     <div class="table-wrap">

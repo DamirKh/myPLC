@@ -105,7 +105,7 @@ if cfg.pins.rgb_enabled ~= false then
 end
 
 local sensor_mgr = sensor_manager.new(cfg)
-local state = controller.new(cfg, os.time())
+local state = controller.new(cfg, math.floor(ba.clock() / 1000))
 local room_hist = history_mod.new(math.max(1, math.floor(
    (cfg.history.room.retention_sec or 604800) / (cfg.history.room.sample_sec or 600))))
 local pump_hist = history_mod.new(math.max(1, math.floor(
@@ -253,17 +253,18 @@ local function apply_led()
 end
 
 local function apply_control()
-   local now = os.time()
-   time_valid = now > 1600000000
+   local wall_now = os.time()
+   time_valid = wall_now > 1600000000
+   local mono_now = math.floor(ba.clock() / 1000)
    local override_target = nil
    if override and override.expires then
-      if now < override.expires then
+      if wall_now < override.expires then
          override_target = override.target
       else
          override = nil
       end
    end
-   local scheduled = time_valid and schedule.target_at(cfg.schedule, now) or nil
+   local scheduled = time_valid and schedule.target_at(cfg.schedule, wall_now) or nil
    local inputs = {
       rooms = snapshot.rooms,
       floors = snapshot.floors,
@@ -276,7 +277,7 @@ local function apply_control()
       manual_pump = manual_pump,
       force_off = service_mode or scan_mode,
    }
-   state = controller.step(state, inputs, cfg, now)
+   state = controller.step(state, inputs, cfg, mono_now)
    ssr_write(state.pump)
    publish_state_if_needed()
 end
@@ -1270,6 +1271,9 @@ end
 function wifi_scan()
    if not (esp32 and esp32.wscan) then
       return nil, "Сканирование Wi-Fi недоступно."
+   end
+   if "ap" == wifi_mode then
+      return nil, "Сканирование недоступно в режиме AP. Введите SSID вручную."
    end
    local ok, result = pcall(esp32.wscan)
    if not ok then
