@@ -17,7 +17,7 @@
 <script src="/static/theme.js"></script>
 <title>Тёплый пол</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="static/style.css?v=13">
+<link rel="stylesheet" href="static/style.css?v=14">
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true">
@@ -125,9 +125,17 @@
         <button id="minusTarget" class="step-btn" type="button" aria-label="Уменьшить уставку">−</button>
         <div class="compact-target">
           <span id="compactTarget">—</span><span class="unit">°C</span>
-          <small id="compactHint">на 2 часа</small>
+          <small id="compactHint">новый override на 3 ч</small>
         </div>
         <button id="plusTarget" class="step-btn" type="button" aria-label="Увеличить уставку">+</button>
+      </div>
+      <div class="compact-editor compact-duration-editor" role="group" aria-label="Время override">
+        <button id="minusDuration" class="step-btn small" type="button" aria-label="Уменьшить время override">−</button>
+        <div class="compact-duration">
+          <span id="compactDuration">3 ч</span>
+          <small>время override</small>
+        </div>
+        <button id="plusDuration" class="step-btn small" type="button" aria-label="Увеличить время override">+</button>
       </div>
       <div class="compact-actions">
         <button id="clearOverrideCompact" class="secondary" type="button">Сбросить override</button>
@@ -186,11 +194,15 @@ const VIEW_KEY = 'thermostat.view';
 const DEFAULT_SETPOINT_MIN = 16;
 const DEFAULT_SETPOINT_MAX = 28;
 const SETPOINT_IDLE_MS = 60000;
+const OVERRIDE_STEP_MINUTES = 30;
+const DEFAULT_OVERRIDE_MINUTES = 180;
+const DEFAULT_OVERRIDE_MAX_MINUTES = 360;
 let lastState = null;
 let pendingTarget = null;
 let saveTimer = null;
 let setpointOpener = null;
 let setpointIdleTimer = null;
+let overrideMinutes = DEFAULT_OVERRIDE_MINUTES;
 
 const SEGMENTS = {
    '0': 'abcdef',
@@ -316,6 +328,12 @@ function openCompactSetpoint() {
    if (!sheet || !sheet.hidden) return;
    setpointOpener = $('targetTileButton');
    if (lastState) $('compactTarget').textContent = fmtShort(lastState.target);
+   if (lastState && lastState.override_active && lastState.override_until) {
+      const remaining = Math.max(0, Number(lastState.override_until) - Number(lastState.time || 0));
+      setOverrideMinutes(Math.ceil(remaining / 60 / OVERRIDE_STEP_MINUTES) * OVERRIDE_STEP_MINUTES);
+   } else {
+      setOverrideMinutes(DEFAULT_OVERRIDE_MINUTES);
+   }
    sheet.hidden = false;
    sheet.classList.add('is-open');
    document.body.classList.add('setpoint-open');
@@ -362,30 +380,71 @@ function roundHalf(value) {
    return Math.round(value * 2) / 2;
 }
 
-function scheduleTargetSave(value) {
-   const target = clampTarget(value);
-   pendingTarget = target;
-   if ($('compactTarget')) $('compactTarget').textContent = fmtShort(target);
-   if (document.activeElement !== $('setpoint')) $('setpoint').value = target;
+function maxOverrideMinutes() {
+   const value = lastState ? Number(lastState.override_max_minutes) : NaN;
+   return Number.isFinite(value) && value >= OVERRIDE_STEP_MINUTES
+      ? value
+      : DEFAULT_OVERRIDE_MAX_MINUTES;
+}
+
+function formatOverrideDuration(minutes) {
+   const total = Math.max(OVERRIDE_STEP_MINUTES,
+      Math.round(minutes / OVERRIDE_STEP_MINUTES) * OVERRIDE_STEP_MINUTES);
+   const hours = Math.floor(total / 60);
+   const mins = total % 60;
+   if (hours && mins) return hours + ' ч ' + mins + ' мин';
+   if (hours) return hours + ' ч';
+   return mins + ' мин';
+}
+
+function clampOverrideMinutes(value) {
+   const rounded = Math.round(value / OVERRIDE_STEP_MINUTES) * OVERRIDE_STEP_MINUTES;
+   return Math.min(maxOverrideMinutes(), Math.max(OVERRIDE_STEP_MINUTES, rounded));
+}
+
+function renderOverrideMinutes() {
+   if ($('compactDuration')) $('compactDuration').textContent = formatOverrideDuration(overrideMinutes);
+   if ((!lastState || !lastState.override_active) && $('compactHint')) {
+      $('compactHint').textContent = 'новый override на ' + formatOverrideDuration(overrideMinutes);
+   }
+}
+
+function setOverrideMinutes(value) {
+   overrideMinutes = clampOverrideMinutes(value);
+   renderOverrideMinutes();
+}
+
+function scheduleOverrideSave() {
    showSetpointMessage('Сохранение…');
    clearTimeout(saveTimer);
    saveTimer = setTimeout(saveTarget, 2200);
 }
 
+function scheduleTargetSave(value) {
+   const target = clampTarget(value);
+   pendingTarget = target;
+   if ($('compactTarget')) $('compactTarget').textContent = fmtShort(target);
+   if (document.activeElement !== $('setpoint')) $('setpoint').value = target;
+   scheduleOverrideSave();
+}
+
 async function saveTarget() {
    saveTimer = null;
-   const target = pendingTarget;
+   const target = pendingTarget !== null ? pendingTarget : (lastState && lastState.target);
    if (target === null || target === undefined) return;
+   const minutes = clampOverrideMinutes(overrideMinutes);
+   overrideMinutes = minutes;
+   renderOverrideMinutes();
    try {
       const r = await fetch('api/setpoint.lsp', {
          method: 'POST',
          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-         body: 'target=' + encodeURIComponent(target)
+         body: 'target=' + encodeURIComponent(target) + '&hours=' + encodeURIComponent(minutes / 60)
       });
       const data = await r.json();
       if (data.ok) {
          pendingTarget = null;
-         showSetpointMessage('Уставка принята: ' + fmt(data.target));
+         showSetpointMessage('Уставка принята: ' + fmt(data.target) + ' на ' + formatOverrideDuration(minutes));
       } else {
          pendingTarget = null;
          showSetpointMessage('Ошибка: ' + (data.error || ''));
@@ -456,7 +515,7 @@ async function refresh() {
          }
       } else {
          $('overrideInfo').textContent = 'Override не активен; базовая уставка ' + fmt(s.base_target);
-         $('compactHint').textContent = 'на 2 часа';
+         renderOverrideMinutes();
          $('stOverride').hidden = true;
          if ($('overrideUntil')) $('overrideUntil').textContent = 'действует без ограничения';
          if ($('overrideAfter')) $('overrideAfter').textContent = 'Текущая — ' + fmt(s.target);
@@ -571,6 +630,16 @@ $('minusTarget').addEventListener('click', () => {
 $('plusTarget').addEventListener('click', () => {
    const base = pendingTarget !== null ? pendingTarget : (lastState && lastState.target) || 22;
    scheduleTargetSave(base + 0.5);
+});
+
+$('minusDuration').addEventListener('click', () => {
+   setOverrideMinutes(overrideMinutes - OVERRIDE_STEP_MINUTES);
+   scheduleOverrideSave();
+});
+
+$('plusDuration').addEventListener('click', () => {
+   setOverrideMinutes(overrideMinutes + OVERRIDE_STEP_MINUTES);
+   scheduleOverrideSave();
 });
 
 $('setpointForm').addEventListener('submit', e => {

@@ -65,7 +65,8 @@
   "ui": {
     "public_setpoint": true,
     "public_setpoint_min": 16.0,
-    "public_setpoint_max": 28.0
+    "public_setpoint_max": 28.0,
+    "max_override_hours": 6.0
   },
   "security": {
     "pin_salt": "",

@@ -63,6 +63,7 @@ if "POST" == request:method() and csrf_ok then
          public_setpoint = request:data("public_setpoint") and true or false,
          public_setpoint_min = tonumber(request:data("public_setpoint_min")),
          public_setpoint_max = tonumber(request:data("public_setpoint_max")),
+         max_override_hours = tonumber(request:data("max_override_hours")),
       },
    }
    local pwd = request:data("mqtt_password")
@@ -137,7 +138,7 @@ end
 <script src="/static/theme.js"></script>
 <script src="/static/htmx.min.js" defer></script>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css?v=13">
+<link rel="stylesheet" href="/static/style.css?v=14">
 </head>
 <body>
 <main>
@@ -179,8 +180,11 @@ end
       <input name="frost_threshold" type="number" min="-20" max="20" step="0.5" value="<?lsp=c.frost_threshold?>">
     </label>
     <label class="check"><input name="public_setpoint" type="checkbox" <?lsp=checked(ui.public_setpoint)?>> Разрешить менять уставку без входа</label>
+    <label>Максимальное время override, ч
+      <input name="max_override_hours" type="number" min="0.5" max="48" step="0.5" value="<?lsp=ui.max_override_hours?>" required>
+    </label>
   </div>
-  <p class="muted">Границы ограничивают изменение уставки воздуха; базовая уставка должна входить в этот диапазон.</p>
+  <p class="muted">Границы ограничивают изменение уставки воздуха; базовая уставка должна входить в этот диапазон. Время override в popup-е меняется с шагом 30 минут и не превышает заданный максимум.</p>
 
   <h2>Время и расписание</h2>
   <div class="form-grid">

@@ -877,6 +877,28 @@ html[data-view="compact"] .compact-setpoint.is-open {
    gap: 12px;
 }
 
+.compact-duration-editor {
+   margin-top: 16px;
+}
+
+.compact-duration {
+   display: flex;
+   flex-direction: column;
+   align-items: center;
+   justify-content: center;
+   flex: 1;
+   font-size: 24px;
+   font-weight: 700;
+   line-height: 1.1;
+}
+
+.compact-duration small {
+   font-size: 12px;
+   font-weight: 400;
+   color: var(--muted);
+   margin-top: 2px;
+}
+
 .compact-target {
    display: flex;
    align-items: baseline;
@@ -976,6 +998,14 @@ html[data-view="compact"] .details-card[open] .details-body {
 html[data-view="compact"] .step-btn {
    min-width: 52px;
    min-height: 52px;
+}
+
+html[data-view="compact"] .compact-duration-editor .step-btn {
+   width: 44px;
+   height: 44px;
+   min-width: 44px;
+   min-height: 44px;
+   font-size: 24px;
 }
 
 @media (max-width: 640px) {

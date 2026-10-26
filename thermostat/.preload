@@ -178,6 +178,10 @@ local function build_state()
       override_after_target = schedule.target_at(cfg.schedule, override.expires)
          or cfg.control.target_room
    end
+   local override_max_minutes = math.floor((tonumber(cfg.ui.max_override_hours) or 6) * 2) * 30
+   if override_max_minutes < 30 then
+      override_max_minutes = 30
+   end
    return {
       ok = true,
       ready = ready,
@@ -190,6 +194,7 @@ local function build_state()
       override_active = override_active,
       override_until = override_active and override.expires or nil,
       override_after_target = override_after_target,
+      override_max_minutes = override_max_minutes,
       floor_limit = cfg.control.floor_limit,
       room = snapshot.actual.room,
       floor = snapshot.actual.floor,
@@ -896,7 +901,20 @@ function set_target(temp, hours, force)
       return false, "rate limited"
    end
    last_set_target = now
-   local duration = tonumber(hours) or 2
+   local duration = 2
+   if nil ~= hours and "" ~= hours then
+      duration = tonumber(hours)
+      if not duration then
+         return false, "invalid duration"
+      end
+   end
+   if duration <= 0 then
+      return false, "invalid duration"
+   end
+   local max_hours = tonumber(cfg.ui.max_override_hours) or 6
+   if duration > max_hours then
+      return false, "override duration out of range"
+   end
    override = schedule.set_override(temp, os.time() + duration * 3600)
    apply_control()
    return true, temp

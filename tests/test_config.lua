@@ -159,4 +159,15 @@ return function(t)
       ok = config.validate(cfg)
       t.assert_false(ok)
    end)
+
+   t.test("max override hours default and range", function()
+      local cfg = config.defaults()
+      t.assert_eq(cfg.ui.max_override_hours, 6.0)
+
+      cfg.ui.max_override_hours = 0.25
+      t.assert_false(config.validate(cfg))
+
+      cfg.ui.max_override_hours = 100
+      t.assert_false(config.validate(cfg))
+   end)
 end

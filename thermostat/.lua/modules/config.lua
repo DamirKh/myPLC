@@ -79,6 +79,7 @@ local DEFAULTS = {
       public_setpoint = true,
       public_setpoint_min = 16.0,
       public_setpoint_max = 28.0,
+      max_override_hours = 6.0,
    },
    security = {
       pin_salt = "",
@@ -350,6 +351,10 @@ function M.validate(cfg)
    elseif is_number(c.target_room) and is_number(min_setpoint) and is_number(max_setpoint)
       and (c.target_room < min_setpoint or c.target_room > max_setpoint) then
       errors[#errors + 1] = "target_room must be inside public setpoint range"
+   end
+   if not is_number(ui.max_override_hours) or ui.max_override_hours < 0.5
+      or ui.max_override_hours > 48 then
+      errors[#errors + 1] = "max_override_hours out of range"
    end
 
    local sec = cfg.security or {}
