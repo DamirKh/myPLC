@@ -286,8 +286,18 @@ local sensor_worker = nil
 local sensor_retry_at = 0
 local sensor_stopping = false
 
+local function has_configured_sensors()
+   for _ in pairs(cfg.sensors or {}) do
+      return true
+   end
+   return false
+end
+
 local function sensor_worker_main()
    while not sensor_stopping do
+      if not has_configured_sensors() then
+         return
+      end
       if not scan_requested and not scan_running then
          -- Never wrap yielding RMT calls in pcall; Xedge32 rejects yields
          -- across a C-call boundary.
@@ -320,10 +330,15 @@ local function sensor_supervisor()
       if not sensor_worker or "dead" == coroutine.status(sensor_worker) then
          local now = os.time()
          if now >= sensor_retry_at then
-            sensor_retry_at = now + 10
             sensor_busy = false
-            trace("thermostat: sensor worker restart")
-            start_sensor_worker()
+            if has_configured_sensors() then
+               sensor_retry_at = now + 10
+               trace("thermostat: sensor worker restart")
+               start_sensor_worker()
+            else
+               sensor_worker = nil
+               sensor_retry_at = now + 1
+            end
          end
       end
       coroutine.yield(true)
@@ -1538,7 +1553,9 @@ end
 
 sensor_timer = ba.timer(sensor_supervisor)
 sensor_timer:set(1000)
-start_sensor_worker()
+if has_configured_sensors() then
+   start_sensor_worker()
+end
 
 control_timer = ba.timer(control_loop)
 control_timer:set(1000)
