@@ -6,14 +6,11 @@
 <title>История — тёплый пол</title>
 <script src="/static/theme.js"></script>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css?v=9">
+<link rel="stylesheet" href="/static/style.css?v=13">
 </head>
 <body>
 <main>
-<header>
-  <div><h1>История</h1><p class="muted">Температуры и наработка насоса</p></div>
-  <nav><a href="/">Обзор</a><a href="/admin/settings.lsp">Настройки</a><a href="/admin/sensors.lsp">Датчики</a><a href="/admin/wifi.lsp">Wi-Fi</a></nav>
-</header>
+<?lsp=app.ui_header{title="История", subtitle="Температуры и наработка насоса", active="history"}?>
 
 <section class="card">
   <div class="chart-head">

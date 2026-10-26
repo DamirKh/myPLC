@@ -159,6 +159,42 @@ nav a:hover {
    background: var(--accent-soft-hover);
 }
 
+nav a.active {
+   background: var(--accent);
+   color: var(--on-accent);
+}
+
+.subnav {
+   align-items: center;
+   margin: 0 0 20px;
+   padding-bottom: 12px;
+   border-bottom: 1px solid var(--border);
+}
+
+.subnav a {
+   font-size: 14px;
+}
+
+.subnav-action {
+   margin-left: auto;
+   background: var(--secondary-bg);
+   color: var(--text);
+}
+
+.subnav-action:hover {
+   background: var(--border);
+}
+
+.htmx-indicator {
+   opacity: 0;
+   transition: opacity 200ms ease;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+   opacity: 1;
+}
+
 .muted {
    color: var(--muted);
    margin: 4px 0;
@@ -349,6 +385,10 @@ canvas {
       flex-direction: column;
    }
 
+   .subnav-action {
+      margin-left: 0;
+   }
+
    .value {
       font-size: 28px;
    }
@@ -399,6 +439,11 @@ html[data-view="compact"] .compact-only {
    display: flex;
    align-items: center;
    gap: 8px;
+}
+
+.page-tools {
+   justify-content: flex-end;
+   margin-bottom: 16px;
 }
 
 .view-toggle {
@@ -472,6 +517,21 @@ html[data-theme="dark"] .theme-icon-moon {
 
 .target-tile {
    position: relative;
+}
+
+.override-schedule {
+   margin: 0;
+   font-size: 18px;
+   line-height: 1.45;
+}
+
+.override-schedule span {
+   font-weight: 600;
+}
+
+#overrideAfter {
+   color: var(--muted);
+   font-weight: 400;
 }
 
 .tile-open {
@@ -874,32 +934,6 @@ html[data-view="compact"] .compact-actions {
 
 html[data-view="compact"] main {
    padding: 12px 10px 40px;
-}
-
-html[data-view="compact"] header {
-   flex-direction: column;
-   align-items: stretch;
-   gap: 10px;
-   margin-bottom: 14px;
-}
-
-html[data-view="compact"] h1 {
-   font-size: 24px;
-}
-
-html[data-view="compact"] .header-actions {
-   flex-direction: column;
-   align-items: stretch;
-   gap: 8px;
-}
-
-html[data-view="compact"] nav {
-   gap: 6px;
-}
-
-html[data-view="compact"] nav a {
-   padding: 7px 10px;
-   font-size: 14px;
 }
 
 html[data-view="compact"] .grid {

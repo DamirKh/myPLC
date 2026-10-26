@@ -45,4 +45,30 @@
          if (!stored()) apply(media.matches ? 'dark' : 'light', false);
       });
    }
+
+   function syncToggle() {
+      var button = document.getElementById('themeToggle');
+      if (!button) return;
+      var label = current() === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему';
+      button.setAttribute('aria-label', label);
+      button.title = label;
+   }
+
+   function bindToggle() {
+      var button = document.getElementById('themeToggle');
+      if (!button || button.dataset.themeBound) return;
+      button.dataset.themeBound = '1';
+      button.addEventListener('click', function () {
+         window.thermostatTheme.toggle();
+      });
+      syncToggle();
+   }
+
+   document.addEventListener('thermostat:theme', syncToggle);
+
+   if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bindToggle);
+   } else {
+      bindToggle();
+   }
 })();

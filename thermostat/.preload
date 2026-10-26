@@ -14,6 +14,7 @@ local mqtt_mod = require("modules.mqtt_bridge")
 local rgb_led = require("modules.rgb_led")
 local indicator = require("modules.indicator")
 local pin_mod = require("modules.pin")
+local ui_nav = require("modules.ui_nav")
 
 local cfg, loaded, load_err = config.load(io)
 if not loaded then
@@ -171,6 +172,12 @@ end
 
 local function build_state()
    local ready = config.control_ready(cfg)
+   local override_active = override ~= nil and override.expires ~= nil and override.expires > os.time()
+   local override_after_target = nil
+   if override_active then
+      override_after_target = schedule.target_at(cfg.schedule, override.expires)
+         or cfg.control.target_room
+   end
    return {
       ok = true,
       ready = ready,
@@ -180,8 +187,9 @@ local function build_state()
       base_target = cfg.control.target_room,
       setpoint_min = cfg.ui.public_setpoint_min,
       setpoint_max = cfg.ui.public_setpoint_max,
-      override_active = override ~= nil and override.expires ~= nil and override.expires > os.time(),
-      override_until = (override and override.expires and override.expires > os.time()) and override.expires or nil,
+      override_active = override_active,
+      override_until = override_active and override.expires or nil,
+      override_after_target = override_after_target,
       floor_limit = cfg.control.floor_limit,
       room = snapshot.actual.room,
       floor = snapshot.actual.floor,
@@ -546,6 +554,36 @@ end
 
 function get_live()
    return live_buf:list(os.time())
+end
+
+function ui_header(opts)
+   return ui_nav.header(opts)
+end
+
+function ui_settings_tabs(active)
+   return ui_nav.settings_tabs(active)
+end
+
+function htmx_request(request)
+   return request ~= nil and request:header("HX-Request") == "true"
+end
+
+function htmx_redirect(response, url)
+   response:setheader("HX-Redirect", url)
+   response:setheader("Content-Length", "0")
+   response:setstatus(200)
+end
+
+function pin_guard(request, response, next_url)
+   if pin_valid(request) then
+      return true
+   end
+   if htmx_request(request) then
+      htmx_redirect(response, "/pin.lsp?next=" .. next_url)
+   else
+      response:sendredirect("/pin.lsp?next=" .. next_url)
+   end
+   return false
 end
 
 function format_utc_offset(minutes)

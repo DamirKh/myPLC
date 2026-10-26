@@ -1,11 +1,20 @@
 <?lsp
-if not app.pin_valid(request) then
-   response:sendredirect"/pin.lsp?next=/admin/pin.lsp"
+if not app.pin_guard(request, response, "/admin/pin.lsp") then
    return
 end
 
 local message = nil
 local message_kind = "ok"
+local is_htmx = app.htmx_request(request)
+
+local function feedback_html(text, kind)
+   local body = ""
+   if text then
+      body = '<section class="banner ' .. tostring(kind or "ok") .. '">' .. tostring(text) .. "</section>"
+   end
+   return '<div id="pin-feedback">' .. body .. "</div>"
+end
+
 if "POST" == request:method() then
    if not app.csrf_valid(request:data("csrf")) then
       message = "Запрос отклонён: неверный CSRF-токен."
@@ -31,13 +40,24 @@ if "POST" == request:method() then
             cookie:maxage(0)
             cookie:httponly(true)
             cookie:activate()
-            response:sendredirect"/pin.lsp?next=/admin/settings.lsp"
+            if is_htmx then
+               app.htmx_redirect(response, "/pin.lsp?next=/admin/settings.lsp")
+            else
+               response:sendredirect"/pin.lsp?next=/admin/settings.lsp"
+            end
             return
          end
          message = tostring(err)
          message_kind = "error"
       end
    end
+end
+
+if is_htmx then
+   response:setheader("Content-Type", "text/html; charset=utf-8")
+   response:setheader("Cache-Control", "no-store")
+   response:write(feedback_html(message, message_kind))
+   return
 end
 ?>
 <!doctype html>
@@ -47,20 +67,19 @@ end
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PIN — тёплый пол</title>
 <script src="/static/theme.js"></script>
+<script src="/static/htmx.min.js" defer></script>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css?v=8">
+<link rel="stylesheet" href="/static/style.css?v=13">
 </head>
 <body>
 <main>
-<header>
-  <div><h1>Смена PIN</h1><p class="muted">Доступ по PIN</p></div>
-  <nav><a href="/">Обзор</a><a href="/admin/settings.lsp">Настройки</a><a href="/admin/sensors.lsp">Датчики</a><a href="/admin/wifi.lsp">Wi-Fi</a><a href="/admin/lock.lsp">Заблокировать</a></nav>
-</header>
+<?lsp=app.ui_header{title="PIN", subtitle="Доступ к настройкам", active="settings"}?>
+<?lsp=app.ui_settings_tabs("pin")?>
 
-<?lsp if message then ?><section class="banner <?lsp=message_kind?>"><?lsp=message?></section><?lsp end ?>
+<?lsp=feedback_html(message, message_kind)?>
 
 <section class="card" style="max-width:520px">
-<form method="post">
+<form method="post" action="/admin/pin.lsp" hx-post="/admin/pin.lsp" hx-target="#pin-feedback" hx-swap="outerHTML">
   <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">
   <div class="form-grid">
     <label>Текущий PIN

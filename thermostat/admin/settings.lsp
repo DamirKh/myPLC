@@ -1,12 +1,13 @@
 <?lsp
-if not app.pin_valid(request) then
-   response:sendredirect"/pin.lsp?next=/admin/settings.lsp"
+if not app.pin_guard(request, response, "/admin/settings.lsp") then
    return
 end
 
 local message = nil
 local message_kind = "ok"
 local csrf_ok = true
+local saved_ok = false
+local is_htmx = app.htmx_request(request)
 if "POST" == request:method() then
    if not app.csrf_valid(request:data("csrf")) then
       csrf_ok = false
@@ -68,11 +69,12 @@ if "POST" == request:method() and csrf_ok then
    if pwd and "" ~= pwd and "***" ~= pwd then
       patch.mqtt.password = pwd
    end
-   local ok, result = app.update_config(patch)
-   if ok then
-      message = "Настройки сохранены"
-      message_kind = "ok"
-   else
+    local ok, result = app.update_config(patch)
+    if ok then
+       message = "Настройки сохранены"
+       message_kind = "ok"
+       saved_ok = true
+    else
       if "table" == type(result) then
          result = table.concat(result, "; ")
       end
@@ -81,30 +83,39 @@ if "POST" == request:method() and csrf_ok then
    end
 end
 
+local function esc(text)
+   return tostring(text or "")
+      :gsub("&", "&amp;")
+      :gsub('"', "&quot;")
+      :gsub("<", "&lt;")
+      :gsub(">", "&gt;")
+end
+
+local function feedback_html(text, kind)
+   local body = ""
+   if text then
+      body = '<section class="banner ' .. esc(kind or "ok") .. '">' .. esc(text) .. "</section>"
+   end
+   return '<div id="settings-feedback">' .. body .. "</div>"
+end
+
+if is_htmx then
+   response:setheader("Content-Type", "text/html; charset=utf-8")
+   response:setheader("Cache-Control", "no-store")
+   response:write(feedback_html(message, message_kind))
+   if saved_ok then
+      response:write('<input id="mqtt-password" type="password" name="mqtt_password" value="***"'
+         .. ' placeholder="оставьте *** чтобы не менять" autocomplete="new-password" hx-swap-oob="true">')
+   end
+   return
+end
+
 local cfg = app.get_config()
-local st = app.get_state()
 local c = cfg.control
 local s = cfg.schedule
 local m = cfg.mqtt
 local ui = cfg.ui
 local function checked(v) return v and "checked" or "" end
-
-local wifi_mode_text = st.wifi_mode or "—"
-if "sta" == wifi_mode_text then
-   wifi_mode_text = st.wifi_sta_connected and "STA, подключено" or "STA, нет подключения"
-elseif "ap" == wifi_mode_text then
-   wifi_mode_text = "AP"
-end
-local jumper_text = "недоступен"
-if st.ap_jumper_available then
-   if true == st.ap_jumper_closed then
-      jumper_text = "замкнут"
-   elseif false == st.ap_jumper_closed then
-      jumper_text = "разомкнут"
-   else
-      jumper_text = "неизвестно"
-   end
-end
 
 local current_offset = app.rounded_utc_offset(s.utc_offset_minutes or 0)
 local offset_abs = math.abs(current_offset)
@@ -124,34 +135,18 @@ end
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Настройки — тёплый пол</title>
 <script src="/static/theme.js"></script>
+<script src="/static/htmx.min.js" defer></script>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css?v=8">
+<link rel="stylesheet" href="/static/style.css?v=13">
 </head>
 <body>
 <main>
-<header>
-  <div><h1>Настройки</h1><p class="muted">Доступ по PIN</p></div>
-  <nav><a href="/">Обзор</a><a href="/admin/sensors.lsp">Датчики</a><a href="/admin/wifi.lsp">Wi-Fi</a><a href="/history.lsp">История</a><a href="/admin/pin.lsp">PIN</a><a href="/admin/lock.lsp">Заблокировать</a></nav>
-</header>
+<?lsp=app.ui_header{title="Настройки", subtitle="Управление, расписание и MQTT", active="settings"}?>
+<?lsp=app.ui_settings_tabs("general")?>
 
-<?lsp if message then ?><section class="banner <?lsp=message_kind?>"><?lsp=message?></section><?lsp end ?>
+<?lsp=feedback_html(message, message_kind)?>
 
-<section class="card">
-  <h2>Wi-Fi</h2>
-  <p>Режим: <strong><?lsp=wifi_mode_text?></strong></p>
-  <p>Джампер AP: <strong><?lsp=jumper_text?></strong></p>
-  <p>STA настроен: <strong><?lsp=st.wifi_has_credentials and "да" or "нет"?></strong></p>
-  <p>STA подтверждён: <strong><?lsp=st.wifi_sta_confirmed and "да" or "нет"?></strong></p>
-  <?lsp if st.ap_jumper_latched and not st.ap_jumper_closed then ?>
-    <p class="banner">AP удерживается после снятия джампера до перезагрузки или ручного переключения в STA.</p>
-  <?lsp end ?>
-  <?lsp if st.ap_jumper_error then ?>
-    <p class="banner error">Джампер AP: <?lsp=st.ap_jumper_error?></p>
-  <?lsp end ?>
-  <p><a href="/admin/wifi.lsp">Настроить Wi-Fi</a></p>
-</section>
-
-<form method="post" class="card">
+<form method="post" class="card" id="settings-form" action="/admin/settings.lsp" hx-post="/admin/settings.lsp" hx-target="#settings-feedback" hx-swap="outerHTML">
   <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">
   <h2>Управление</h2>
   <div class="form-grid">
@@ -214,7 +209,7 @@ end
       <input name="mqtt_username" value="<?lsp=m.username?>">
     </label>
     <label>Пароль
-      <input name="mqtt_password" type="password" value="<?lsp=m.password?>" placeholder="оставьте *** чтобы не менять">
+      <input id="mqtt-password" name="mqtt_password" type="password" value="<?lsp=m.password?>" placeholder="оставьте *** чтобы не менять">
     </label>
     <label>Base topic
       <input name="mqtt_base_topic" value="<?lsp=m.base_topic?>">
@@ -225,18 +220,6 @@ end
   <div class="row"><button type="submit">Сохранить</button></div>
 </form>
 
-<div class="card">
-  <h2>Текущие датчики</h2>
-  <table>
-    <thead><tr><th>Роль</th><th>Метка</th><th>Шина</th><th>ROM</th></tr></thead>
-    <tbody>
-    <?lsp for _,x in ipairs(cfg.sensor_list or {}) do ?>
-      <tr><td><?lsp=x.role?></td><td><?lsp=x.label or ""?></td><td><?lsp=x.bus?></td><td><code><?lsp=x.rom?></code></td></tr>
-    <?lsp end ?>
-    </tbody>
-  </table>
-  <p><a href="/admin/sensors.lsp">Поиск и назначение ролей</a></p>
-</div>
 </main>
 </body>
 </html>

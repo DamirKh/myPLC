@@ -17,7 +17,7 @@
 <script src="/static/theme.js"></script>
 <title>Тёплый пол</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="static/style.css?v=8">
+<link rel="stylesheet" href="static/style.css?v=13">
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true">
@@ -33,30 +33,14 @@
 </svg>
 
 <main>
-  <header>
-    <div>
-      <h1>Тёплый пол</h1>
-      <p class="muted full-only">Xedge32 · насос и датчики DS18B20</p>
-    </div>
-    <div class="header-actions">
-      <nav>
-        <a href="history.lsp">История</a>
-        <a href="/admin/settings.lsp">Настройки</a>
-        <a href="/admin/sensors.lsp">Датчики</a>
-        <a href="/admin/wifi.lsp">Wi-Fi</a>
-      </nav>
-      <div class="view-controls">
-        <span id="mqttStatus" class="mqtt-status" role="status" aria-live="polite" hidden>
-          <svg class="icon" aria-hidden="true"><use href="#i-mqtt"/></svg>
-        </span>
-        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Включить тёмную тему" title="Включить тёмную тему">
-          <svg class="icon theme-icon-sun" aria-hidden="true"><use href="#i-sun"/></svg>
-          <svg class="icon theme-icon-moon" aria-hidden="true"><use href="#i-moon"/></svg>
-        </button>
-        <button id="viewToggle" class="view-toggle" type="button">Компактный вид</button>
-      </div>
-    </div>
-  </header>
+  <?lsp=app.ui_header{title="Тёплый пол", subtitle="Xedge32 · насос и датчики DS18B20", active="overview"}?>
+
+  <div class="view-controls page-tools">
+    <span id="mqttStatus" class="mqtt-status" role="status" aria-live="polite" hidden>
+      <svg class="icon" aria-hidden="true"><use href="#i-mqtt"/></svg>
+    </span>
+    <button id="viewToggle" class="view-toggle" type="button">Компактный вид</button>
+  </div>
 
   <section class="card clock-card" aria-label="Текущее время">
     <div id="lcdClock" class="lcd-clock" role="timer" aria-label="Текущее время"></div>
@@ -107,6 +91,17 @@
       <button id="targetTileButton" class="tile-open compact-only" type="button"
               aria-label="Изменить уставку" aria-controls="compactSetpoint"
               aria-haspopup="dialog" aria-expanded="false"></button>
+    </article>
+
+    <article class="card tile override-tile">
+      <span class="label">
+        <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
+        Текущая уставка
+      </span>
+      <p class="override-schedule">
+        <span id="overrideUntil">—</span><br>
+        <span id="overrideAfter">—</span>
+      </p>
     </article>
 
     <article class="card tile">
@@ -358,24 +353,6 @@ function clampTarget(value) {
    return Math.min(bounds.max, Math.max(bounds.min, roundHalf(value)));
 }
 
-function syncThemeToggle() {
-   const button = $('themeToggle');
-   if (!button) return;
-   const dark = document.documentElement.dataset.theme === 'dark';
-   const label = dark ? 'Включить светлую тему' : 'Включить тёмную тему';
-   button.setAttribute('aria-label', label);
-   button.title = label;
-}
-
-if ($('themeToggle') && window.thermostatTheme) {
-   $('themeToggle').addEventListener('click', () => {
-      window.thermostatTheme.toggle();
-      syncThemeToggle();
-   });
-}
-document.addEventListener('thermostat:theme', syncThemeToggle);
-syncThemeToggle();
-
 function showSetpointMessage(text) {
    if ($('setpointResult')) $('setpointResult').textContent = text;
    if ($('compactSetpointResult')) $('compactSetpointResult').textContent = text;
@@ -468,14 +445,21 @@ async function refresh() {
       const overrideActive = !!s.override_active;
       if (overrideActive && s.override_until) {
          const until = new Date(s.override_until * 1000);
-         $('overrideInfo').textContent = 'Override действует до ' + until.toLocaleTimeString();
-         $('compactHint').textContent = 'override до ' + until.toLocaleTimeString();
+         const untilShort = until.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false});
+         $('overrideInfo').textContent = 'Override действует до ' + untilShort;
+         $('compactHint').textContent = 'override до ' + untilShort;
          $('stOverride').hidden = false;
-         $('stOverrideText').textContent = 'до ' + until.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+         $('stOverrideText').textContent = 'до ' + untilShort;
+         if ($('overrideUntil')) $('overrideUntil').textContent = 'действует до ' + untilShort;
+         if ($('overrideAfter')) {
+            $('overrideAfter').textContent = 'Затем — ' + fmt(s.override_after_target ?? s.base_target);
+         }
       } else {
          $('overrideInfo').textContent = 'Override не активен; базовая уставка ' + fmt(s.base_target);
          $('compactHint').textContent = 'на 2 часа';
          $('stOverride').hidden = true;
+         if ($('overrideUntil')) $('overrideUntil').textContent = 'действует без ограничения';
+         if ($('overrideAfter')) $('overrideAfter').textContent = 'Текущая — ' + fmt(s.target);
       }
 
       $('stPumpText').textContent = s.pump ? 'Насос ВКЛ' : 'Насос ВЫКЛ';

@@ -1,6 +1,5 @@
 <?lsp
-if not app.pin_valid(request) then
-   response:sendredirect"/pin.lsp?next=/admin/wifi.lsp"
+if not app.pin_guard(request, response, "/admin/wifi.lsp") then
    return
 end
 
@@ -8,6 +7,9 @@ local message = nil
 local message_kind = "ok"
 local scan = nil
 local csrf_ok = true
+local is_htmx = app.htmx_request(request)
+local fragment = request:data("fragment")
+
 if "POST" == request:method() then
    if not app.csrf_valid(request:data("csrf")) then
       csrf_ok = false
@@ -97,21 +99,113 @@ local function esc(value)
       :gsub('"', "&quot;")
 end
 
-local mode_text = st.wifi_mode or "—"
-if "sta" == mode_text then
-   mode_text = st.wifi_sta_connected and "STA, подключено" or "STA, нет подключения"
-elseif "ap" == mode_text then
-   mode_text = "AP"
-end
-local jumper_text = "недоступен"
-if st.ap_jumper_available then
-   if true == st.ap_jumper_closed then
-      jumper_text = "замкнут"
-   elseif false == st.ap_jumper_closed then
-      jumper_text = "разомкнут"
-   else
-      jumper_text = "неизвестно"
+local function mode_text()
+   local text = st.wifi_mode or "—"
+   if "sta" == text then
+      text = st.wifi_sta_connected and "STA, подключено" or "STA, нет подключения"
+   elseif "ap" == text then
+      text = "AP"
    end
+   return text
+end
+
+local function jumper_text()
+   if not st.ap_jumper_available then
+      return "недоступен"
+   end
+   if true == st.ap_jumper_closed then
+      return "замкнут"
+   end
+   if false == st.ap_jumper_closed then
+      return "разомкнут"
+   end
+   return "неизвестно"
+end
+
+local function feedback_html(text, kind, oob)
+   local body = ""
+   if text then
+      body = '<section class="banner ' .. esc(kind or "ok") .. '">' .. esc(text) .. "</section>"
+   end
+   local attr = oob and ' hx-swap-oob="true"' or ""
+   return '<div id="wifi-feedback"' .. attr .. ">" .. body .. "</div>"
+end
+
+local function status_html(oob)
+   local attr = oob and ' hx-swap-oob="true"' or ""
+   local out = {
+      '<section id="wifi-status" class="card"' .. attr,
+      ' hx-get="/admin/wifi.lsp?fragment=status" hx-trigger="every 5s" hx-swap="outerHTML">',
+      "<h2>Текущее состояние</h2>",
+      "<p>Режим: <strong>" .. esc(mode_text()) .. "</strong></p>",
+      "<p>Джампер AP: <strong>" .. esc(jumper_text()) .. "</strong></p>",
+      "<p>STA подтверждён: <strong>" .. (st.wifi_sta_confirmed and "да" or "нет") .. "</strong></p>",
+   }
+   if st.ap_jumper_latched and not st.ap_jumper_closed then
+      out[#out + 1] = '<p class="banner">AP удерживается после снятия джампера до перезагрузки или ручного переключения в STA.</p>'
+   end
+   if st.ap_jumper_error then
+      out[#out + 1] = '<p class="banner error">Джампер AP: ' .. esc(st.ap_jumper_error) .. "</p>"
+   end
+   out[#out + 1] = "<p>IP: <strong>" .. esc(st.wifi_ip or "—") .. "</strong></p>"
+   if has_credentials then
+      out[#out + 1] = "<p>Сохранённая сеть: <strong>" .. esc(st.wifi_sta_ssid) .. "</strong> (пароль сохранён на устройстве)</p>"
+   else
+      out[#out + 1] = '<p class="muted">Сохранённой сети нет.</p>'
+   end
+   if st.wifi_last_error then
+      out[#out + 1] = '<p class="banner error">Последняя ошибка Wi-Fi: ' .. esc(st.wifi_last_error) .. "</p>"
+   end
+   out[#out + 1] = "</section>"
+   return table.concat(out)
+end
+
+local function scan_html()
+   local out = {
+      '<section id="wifi-scan" class="card">',
+      "<h2>Доступные сети</h2>",
+   }
+   if "ap" == st.wifi_mode then
+      out[#out + 1] = '<p class="muted">Сканирование недоступно в режиме AP. Введите SSID вручную ниже.</p>'
+   else
+      out[#out + 1] = '<form method="post" action="/admin/wifi.lsp?fragment=scan"'
+      out[#out + 1] = ' hx-post="/admin/wifi.lsp?fragment=scan" hx-target="#wifi-scan" hx-swap="outerHTML">'
+      out[#out + 1] = '<input type="hidden" name="csrf" value="' .. esc(app.csrf_token()) .. '">'
+      out[#out + 1] = '<div class="row">'
+      out[#out + 1] = '<button type="submit" name="action" value="scan">Сканировать сети</button>'
+      out[#out + 1] = '<span id="wifi-scan-indicator" class="muted htmx-indicator">Сканирование…</span>'
+      out[#out + 1] = '<span class="muted">Если список пуст, введите SSID вручную ниже.</span>'
+      out[#out + 1] = "</div></form>"
+   end
+   if scan and #scan > 0 then
+      out[#out + 1] = '<div class="table-wrap"><table>'
+      out[#out + 1] = "<thead><tr><th>SSID</th><th>RSSI</th><th>Канал</th><th>Защита</th><th></th></tr></thead><tbody>"
+      for _, net in ipairs(scan) do
+         out[#out + 1] = "<tr><td>" .. esc(net.ssid) .. "</td><td>" .. esc(net.rssi) .. " dBm</td><td>"
+            .. esc(net.channel) .. "</td><td>" .. esc(net.authmode) .. '</td><td><a href="?pick='
+            .. esc(ba.urlencode(net.ssid)) .. '">Выбрать</a></td></tr>'
+      end
+      out[#out + 1] = "</tbody></table></div>"
+   end
+   out[#out + 1] = "</section>"
+   return table.concat(out)
+end
+
+if is_htmx then
+   response:setheader("Content-Type", "text/html; charset=utf-8")
+   response:setheader("Cache-Control", "no-store")
+   if "status" == fragment then
+      response:write(status_html(false))
+   elseif "scan" == fragment then
+      response:write(scan_html())
+      if message then
+         response:write(feedback_html(message, message_kind, true))
+      end
+   else
+      response:write(feedback_html(message, message_kind, false))
+      response:write(status_html(true))
+   end
+   return
 end
 ?>
 <!doctype html>
@@ -121,77 +215,22 @@ end
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wi-Fi — тёплый пол</title>
 <script src="/static/theme.js"></script>
+<script src="/static/htmx.min.js" defer></script>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css?v=8">
+<link rel="stylesheet" href="/static/style.css?v=13">
 </head>
 <body>
 <main>
-<header>
-  <div><h1>Wi-Fi</h1><p class="muted">Режим AP/STA и сохранённая сеть</p></div>
-  <nav><a href="/">Обзор</a><a href="/admin/settings.lsp">Настройки</a><a href="/admin/sensors.lsp">Датчики</a><a href="/admin/pin.lsp">PIN</a><a href="/admin/lock.lsp">Заблокировать</a></nav>
-</header>
+<?lsp=app.ui_header{title="Wi-Fi", subtitle="Режим AP/STA и сохранённая сеть", active="settings"}?>
+<?lsp=app.ui_settings_tabs("wifi")?>
 
-<?lsp if message then ?><section class="banner <?lsp=message_kind?>"><?lsp=esc(message)?></section><?lsp end ?>
-
-<section class="card">
-  <h2>Текущее состояние</h2>
-  <p>Режим: <strong><?lsp=esc(mode_text)?></strong></p>
-  <p>Джампер AP: <strong><?lsp=esc(jumper_text)?></strong></p>
-  <p>STA подтверждён: <strong><?lsp=st.wifi_sta_confirmed and "да" or "нет"?></strong></p>
-  <?lsp if st.ap_jumper_latched and not st.ap_jumper_closed then ?>
-    <p class="banner">AP удерживается после снятия джампера до перезагрузки или ручного переключения в STA.</p>
-  <?lsp end ?>
-  <?lsp if st.ap_jumper_error then ?>
-    <p class="banner error">Джампер AP: <?lsp=esc(st.ap_jumper_error)?></p>
-  <?lsp end ?>
-  <p>IP: <strong><?lsp=esc(st.wifi_ip or "—")?></strong></p>
-  <?lsp if has_credentials then ?>
-    <p>Сохранённая сеть: <strong><?lsp=esc(st.wifi_sta_ssid)?></strong> (пароль сохранён на устройстве)</p>
-  <?lsp else ?>
-    <p class="muted">Сохранённой сети нет.</p>
-  <?lsp end ?>
-  <?lsp if st.wifi_last_error then ?>
-    <p class="banner error">Последняя ошибка Wi-Fi: <?lsp=esc(st.wifi_last_error)?></p>
-  <?lsp end ?>
-</section>
-
-<section class="card">
-  <h2>Доступные сети</h2>
-  <?lsp if "ap" == st.wifi_mode then ?>
-    <p class="muted">Сканирование недоступно в режиме AP. Введите SSID вручную ниже.</p>
-  <?lsp else ?>
-  <form method="post">
-    <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">
-    <div class="row">
-      <button type="submit" name="action" value="scan">Сканировать сети</button>
-      <span class="muted">Если список пуст, введите SSID вручную ниже.</span>
-    </div>
-  </form>
-  <?lsp end ?>
-
-  <?lsp if scan then ?>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>SSID</th><th>RSSI</th><th>Канал</th><th>Защита</th><th></th></tr></thead>
-        <tbody>
-        <?lsp for _, net in ipairs(scan) do ?>
-          <tr>
-            <td><?lsp=esc(net.ssid)?></td>
-            <td><?lsp=esc(net.rssi)?> dBm</td>
-            <td><?lsp=esc(net.channel)?></td>
-            <td><?lsp=esc(net.authmode)?></td>
-            <td><a href="?pick=<?lsp=ba.urlencode(net.ssid)?>">Выбрать</a></td>
-          </tr>
-        <?lsp end ?>
-        </tbody>
-      </table>
-    </div>
-  <?lsp end ?>
-</section>
+<?lsp=feedback_html(message, message_kind, false)?>
+<?lsp=status_html(false)?>
+<?lsp=scan_html()?>
 
 <section class="card">
   <h2>Подключение</h2>
-  <form method="post">
+  <form method="post" action="/admin/wifi.lsp?fragment=feedback" hx-post="/admin/wifi.lsp?fragment=feedback" hx-target="#wifi-feedback" hx-swap="outerHTML">
     <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">
     <div class="form-grid">
       <label>SSID
@@ -218,7 +257,7 @@ end
 <?lsp if has_credentials then ?>
 <section class="card">
   <h2>Удаление</h2>
-  <form method="post" onsubmit="return confirm('Удалить сохранённую сеть и перейти в AP?')">
+  <form method="post" action="/admin/wifi.lsp?fragment=feedback" hx-post="/admin/wifi.lsp?fragment=feedback" hx-target="#wifi-feedback" hx-swap="outerHTML" hx-confirm="Удалить сохранённую сеть и перейти в AP?">
     <input type="hidden" name="csrf" value="<?lsp=app.csrf_token()?>">
     <button type="submit" name="action" value="forget" class="secondary">Забыть сеть и перейти в AP</button>
   </form>

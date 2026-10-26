@@ -52,6 +52,7 @@ local files = {
    "test_ds18b20.lua",
    "test_config.lua",
    "test_wifi_policy.lua",
+   "test_ui_nav.lua",
    "test_sensor_manager.lua",
    "test_pump_runtime.lua",
    "test_controller.lua",
