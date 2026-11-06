@@ -62,6 +62,11 @@
       "max_bytes": 196608
     }
   },
+  "espnow": {
+    "enabled": false,
+    "provision_window_sec": 45,
+    "nodes": {}
+  },
   "ui": {
     "public_setpoint": true,
     "public_setpoint_min": 16.0,

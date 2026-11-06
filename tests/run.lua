@@ -61,6 +61,7 @@ local files = {
    "test_live_buffer.lua",
    "test_indicator.lua",
    "test_pin.lua",
+   "test_espnow.lua",
    "test_mqtt.lua",
 }
 

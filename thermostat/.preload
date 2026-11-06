@@ -14,6 +14,7 @@ local mqtt_mod = require("modules.mqtt_bridge")
 local rgb_led = require("modules.rgb_led")
 local indicator = require("modules.indicator")
 local pin_mod = require("modules.pin")
+local espnow_mod = require("modules.espnow_provision")
 local ui_nav = require("modules.ui_nav")
 
 local cfg, loaded, load_err = config.load(io)
@@ -139,6 +140,13 @@ local wifi_jumper_closed = nil
 local wifi_jumper_latched = false
 local wifi_jumper_error = nil
 local wifi_jumper_timer = nil
+local espnow_rx = nil
+local espnow_runtime = espnow_mod.new_runtime()
+local espnow_timer = nil
+local espnow_queue = {}
+local espnow_queue_max = 16
+local espnow_rx_mode = nil
+local espnow_last_error = nil
 local led_tick = 0
 local boot_until = os.time() + 2
 local time_valid = os.time() > 1600000000
@@ -174,9 +182,355 @@ local function espnow_available()
    return "table" == type(esp32) and "function" == type(esp32.espnow)
 end
 
+local function espnow_wifi_ready()
+   if "ap" == wifi_mode then
+      return wifi_ip ~= nil
+   end
+   return "sta" == wifi_mode and wifi_connected
+end
+
+local espnow_worker_loop
+
+local function espnow_save_enabled(enabled)
+   local newcfg = config.merge(cfg, { espnow = { enabled = enabled and true or false } })
+   newcfg.espnow = newcfg.espnow or {}
+   newcfg.espnow.enabled = enabled and true or false
+   newcfg.espnow.provision_window_sec = newcfg.espnow.provision_window_sec or 45
+   newcfg.espnow.nodes = newcfg.espnow.nodes or {}
+   local ok, errors = config.validate(newcfg)
+   if not ok then
+      return false, errors
+   end
+   local saved, err = config.save(io, newcfg)
+   if not saved then
+      return false, err
+   end
+   cfg = newcfg
+   sensor_mgr.cfg = cfg
+   return true
+end
+
+local function espnow_add_node(mac)
+   local key = espnow_mod.normalize_mac(mac)
+   if not key then
+      return false, "invalid MAC"
+   end
+   if espnow_mod.find_node(cfg, key) then
+      return true
+   end
+   local newcfg = config.merge(cfg, {})
+   newcfg.espnow = newcfg.espnow or { enabled = true, provision_window_sec = 45, nodes = {} }
+   newcfg.espnow.nodes = newcfg.espnow.nodes or {}
+   espnow_mod.add_node(newcfg, key, "")
+   local ok, errors = config.validate(newcfg)
+   if not ok then
+      return false, errors
+   end
+   local saved, err = config.save(io, newcfg)
+   if not saved then
+      return false, err
+   end
+   cfg = newcfg
+   sensor_mgr.cfg = cfg
+   trace("thermostat: espnow node saved: " .. key)
+   return true
+end
+
+function espnow_forget_node(mac)
+   local key = espnow_mod.normalize_mac(mac)
+   if not key then
+      return false, "invalid MAC"
+   end
+   local newcfg = config.merge(cfg, {})
+   if not espnow_mod.remove_node(newcfg, key) then
+      return false, "not found"
+   end
+   local ok, errors = config.validate(newcfg)
+   if not ok then
+      return false, errors
+   end
+   local saved, err = config.save(io, newcfg)
+   if not saved then
+      return false, err
+   end
+   cfg = newcfg
+   sensor_mgr.cfg = cfg
+   espnow_runtime.nodes[key] = nil
+   return true
+end
+
+local function espnow_open_rx()
+   if espnow_rx then
+      return true
+   end
+   if not espnow_available() then
+      espnow_last_error = "esp32.espnow unavailable"
+      return false, espnow_last_error
+   end
+   if not espnow_wifi_ready() then
+      espnow_last_error = "Wi-Fi is not connected"
+      return false, espnow_last_error
+   end
+   local function on_packet(data, src, info)
+      if #espnow_queue >= espnow_queue_max then
+         table.remove(espnow_queue, 1)
+         espnow_runtime.queue_drops = (espnow_runtime.queue_drops or 0) + 1
+      end
+      espnow_queue[#espnow_queue + 1] = {
+         data = data,
+         src = src,
+         info = {
+            rssi = info and info.rssi,
+            channel = info and info.channel,
+            len = info and info.len,
+         },
+      }
+   end
+   local ok, rx, err = pcall(esp32.espnow, { callback = on_packet })
+   if not ok or not rx then
+      espnow_last_error = tostring(rx or err)
+      return false, espnow_last_error
+   end
+   espnow_rx = rx
+   espnow_rx_mode = wifi_mode
+   espnow_runtime.open = true
+   local info_ok, info = pcall(rx.info, rx)
+   espnow_runtime.channel = info_ok and info and info.channel or nil
+   espnow_runtime.drops = info_ok and info and info.drops or 0
+   espnow_last_error = nil
+   trace("thermostat: espnow open, channel " .. tostring(espnow_runtime.channel))
+   if not espnow_timer then
+      espnow_timer = ba.timer(espnow_worker_loop)
+      espnow_timer:set(100)
+   end
+   return true
+end
+
+local function espnow_close_rx(reason)
+   espnow_runtime.provision.active = false
+   cancel_timer(espnow_timer)
+   espnow_timer = nil
+   if espnow_rx then
+      pcall(espnow_rx.close, espnow_rx)
+      espnow_rx = nil
+   end
+   espnow_rx_mode = nil
+   espnow_runtime.open = false
+   espnow_runtime.channel = nil
+   espnow_queue = {}
+   if reason then
+      trace("thermostat: espnow closed (" .. tostring(reason) .. ")")
+   end
+end
+
+local function espnow_sync()
+   local enabled = cfg.espnow and cfg.espnow.enabled and true or false
+   if not enabled then
+      if espnow_rx then
+         espnow_close_rx("disabled")
+      end
+      return
+   end
+   if not espnow_wifi_ready() then
+      if espnow_rx then
+         espnow_close_rx("wifi down")
+      end
+      return
+   end
+   if espnow_rx then
+      local ok = pcall(espnow_rx.info, espnow_rx)
+      if not ok then
+         espnow_close_rx("receiver closed")
+      end
+   end
+   if espnow_rx and espnow_rx_mode ~= wifi_mode then
+      espnow_close_rx("wifi mode changed")
+   end
+   if not espnow_rx then
+      espnow_open_rx()
+   end
+end
+
+local function espnow_drain()
+   while #espnow_queue > 0 do
+      local item = table.remove(espnow_queue, 1)
+      local token = nil
+      if espnow_runtime.provision.active then
+         token = espnow_runtime.provision.token
+      end
+      local kind, parsed = espnow_mod.note_packet(
+         espnow_runtime, item.data, item.src, item.info, os.time(), token
+      )
+      if "pok" == kind and parsed and token then
+         local known = cfg.espnow and cfg.espnow.nodes and cfg.espnow.nodes[parsed.mac]
+         if not known then
+            local ok, err = espnow_add_node(parsed.mac)
+            if not ok then
+               espnow_last_error = tostring(err)
+            end
+         end
+      end
+   end
+end
+
+espnow_worker_loop = function()
+   while espnow_rx do
+      local drain_ok, drain_err = pcall(espnow_drain)
+      if not drain_ok then
+         espnow_last_error = tostring(drain_err)
+      end
+      local p = espnow_runtime.provision
+      local now_ms = ba.clock()
+      if p.active then
+         if now_ms >= p.until_ms then
+            p.active = false
+            trace("thermostat: espnow provision finished")
+         elseif now_ms >= p.next_ms then
+            p.next_ms = now_ms + 100
+            local ok, info = pcall(espnow_rx.info, espnow_rx)
+            local channel = ok and info and info.channel or nil
+            if channel then
+               local mac_ok, mac = pcall(esp32.mac)
+               local packet, perr
+               if mac_ok and mac then
+                  packet, perr = espnow_mod.build_prov(mac, p.token, channel, 1)
+               else
+                  perr = tostring(mac)
+               end
+               if packet then
+                  local bok, sent, serr = pcall(espnow_rx.broadcast, espnow_rx, packet)
+                  if not bok then
+                     espnow_last_error = tostring(sent)
+                  elseif not sent then
+                     espnow_last_error = tostring(serr)
+                  else
+                     p.sent = (p.sent or 0) + 1
+                     espnow_last_error = nil
+                  end
+               else
+                  espnow_last_error = tostring(perr)
+               end
+            end
+         end
+      end
+      coroutine.yield(true)
+   end
+end
+
+function espnow_start_provision(seconds)
+   if not espnow_available() then
+      return false, "ESP-NOW API недоступен"
+   end
+   if not espnow_wifi_ready() then
+      return false, "Wi-Fi не подключён"
+   end
+   local window = tonumber(seconds) or (cfg.espnow and cfg.espnow.provision_window_sec) or 45
+   if window < 10 or window > 120 then
+      return false, "Окно провижининга должно быть 10..120 секунд"
+   end
+   local enabled_before = cfg.espnow and cfg.espnow.enabled and true or false
+   if not enabled_before then
+      local ok, err = espnow_save_enabled(true)
+      if not ok then
+         return false, err
+      end
+   end
+   local ok, err = espnow_open_rx()
+   if not ok then
+      if not enabled_before then
+         espnow_save_enabled(false)
+      end
+      return false, err
+   end
+   local token, terr = espnow_mod.random_token(ba)
+   if not token then
+      return false, terr
+   end
+   local p = espnow_runtime.provision
+   p.active = true
+   p.token = token
+   p.window = window
+   p.started_at = os.time()
+   p.until_ms = ba.clock() + window * 1000
+   p.next_ms = ba.clock()
+   p.sent = 0
+   espnow_last_error = nil
+   trace("thermostat: espnow provision started")
+   return true
+end
+
+function espnow_stop_provision()
+   local was = espnow_runtime.provision.active
+   espnow_runtime.provision.active = false
+   return true, was
+end
+
+function espnow_disable()
+   espnow_close_rx("disabled")
+   local ok, err = espnow_save_enabled(false)
+   if not ok and cfg.espnow then
+      cfg.espnow.enabled = false
+   end
+   return ok, err
+end
+
+function espnow_status()
+   local p = espnow_runtime.provision
+   local remaining = 0
+   if p.active then
+      remaining = math.max(0, math.ceil((p.until_ms - ba.clock()) / 1000))
+   end
+   local channel = espnow_runtime.channel
+   local drops = espnow_runtime.drops or 0
+   if espnow_rx then
+      local ok, info = pcall(espnow_rx.info, espnow_rx)
+      if ok and info then
+         channel = info.channel
+         drops = info.drops or drops
+      end
+   end
+   return {
+      available = espnow_available(),
+      enabled = cfg.espnow and cfg.espnow.enabled and true or false,
+      open = espnow_rx ~= nil,
+      ready = espnow_wifi_ready(),
+      wifi_mode = wifi_mode,
+      wifi_connected = wifi_connected,
+      channel = channel,
+      drops = drops,
+      queue_drops = espnow_runtime.queue_drops or 0,
+      provision_active = p.active and remaining > 0,
+      provision_remaining = remaining,
+      provision_sent = p.sent or 0,
+      provision_window = p.window or (cfg.espnow and cfg.espnow.provision_window_sec) or 45,
+      token_hex = p.token and espnow_mod.hex(p.token) or nil,
+      last_error = espnow_last_error,
+      nodes = espnow_mod.nodes(espnow_runtime, cfg.espnow and cfg.espnow.nodes),
+   }
+end
+
 local function build_state()
    local ready = config.control_ready(cfg)
    local espnow_ok = espnow_available()
+   local espnow_channel = espnow_runtime.channel
+   local espnow_drops = espnow_runtime.drops or 0
+   if espnow_rx then
+      local ok, info = pcall(espnow_rx.info, espnow_rx)
+      if ok and info then
+         espnow_channel = info.channel
+         espnow_drops = info.drops or espnow_drops
+      end
+   end
+   local provision_remaining = 0
+   if espnow_runtime.provision.active then
+      provision_remaining = math.max(0, math.ceil((espnow_runtime.provision.until_ms - ba.clock()) / 1000))
+   end
+   local espnow_count = 0
+   for _, node in ipairs(espnow_mod.nodes(espnow_runtime, cfg.espnow and cfg.espnow.nodes)) do
+      if node.known then
+         espnow_count = espnow_count + 1
+      end
+   end
    local override_active = override ~= nil and override.expires ~= nil and override.expires > os.time()
    local override_after_target = nil
    if override_active then
@@ -234,6 +588,14 @@ local function build_state()
       wifi_last_error = wifi_last_error,
       espnow_available = espnow_ok,
       espnow_api = espnow_ok and "esp32.espnow" or nil,
+      espnow_enabled = cfg.espnow and cfg.espnow.enabled and true or false,
+      espnow_open = espnow_rx ~= nil,
+      espnow_provision_active = provision_remaining > 0,
+      espnow_provision_remaining = provision_remaining,
+      espnow_channel = espnow_channel,
+      espnow_drops = espnow_drops,
+      espnow_nodes = espnow_count,
+      espnow_last_error = espnow_last_error,
       led_tick = led_tick,
       pin_configured = pin_is_configured(),
       pin_available = pin_key ~= nil,
@@ -1507,6 +1869,7 @@ function onunload()
    cancel_timer(manual_timer)
    cancel_timer(wifi_jumper_timer)
    cancel_wifi_switch()
+   espnow_close_rx("unload")
    if wifi_jumper_in then
       pcall(function() wifi_jumper_in:close() end)
       wifi_jumper_in = nil
@@ -1559,6 +1922,7 @@ if xedge and xedge.event then
       if "up" ~= status and "down" ~= status then
          wifi_last_error = tostring(status)
       end
+      espnow_sync()
       apply_led()
    end)
    xedge.event("wip", function(ip)
@@ -1604,6 +1968,7 @@ local function control_loop()
          end
          scan_result = { buses = {}, errors = { "Сканирование не завершилось за 20 секунд." } }
       end
+      espnow_sync()
       apply_control()
       pump_meter_tick()
       coroutine.yield(true)

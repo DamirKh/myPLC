@@ -170,4 +170,31 @@ return function(t)
       cfg.ui.max_override_hours = 100
       t.assert_false(config.validate(cfg))
    end)
+
+   t.test("ESP-NOW nodes are validated", function()
+      local cfg = config.defaults()
+      cfg.espnow.nodes["3c8427ca2754"] = { mac = "3c8427ca2754", label = "sensor" }
+      local ok, errors = config.validate(cfg)
+      t.assert_true(ok, table.concat(errors or {}, ", "))
+
+      cfg.espnow.nodes["3c8427ca275"] = { mac = "3c8427ca275", label = "" }
+      t.assert_false(config.validate(cfg))
+
+      cfg = config.defaults()
+      cfg.espnow.nodes["3c8427ca2754"] = { mac = "aabbccddeeff", label = "" }
+      t.assert_false(config.validate(cfg))
+
+      cfg = config.defaults()
+      cfg.espnow.nodes["3c8427ca2754"] = { mac = "3c8427ca2754", label = string.rep("x", 65) }
+      t.assert_false(config.validate(cfg))
+   end)
+
+   t.test("ESP-NOW provisioning window is bounded", function()
+      local cfg = config.defaults()
+      t.assert_eq(cfg.espnow.provision_window_sec, 45)
+      cfg.espnow.provision_window_sec = 5
+      t.assert_false(config.validate(cfg))
+      cfg.espnow.provision_window_sec = 121
+      t.assert_false(config.validate(cfg))
+   end)
 end

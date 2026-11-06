@@ -48,6 +48,7 @@ function M.settings_tabs(active)
       .. nav_item("/admin/settings.lsp", "Основные", active == "general")
       .. nav_item("/admin/sensors.lsp", "Сервис", active == "service")
       .. nav_item("/admin/wifi.lsp", "Wi-Fi", active == "wifi")
+      .. nav_item("/admin/espnow.lsp", "ESP-NOW", active == "espnow")
       .. nav_item("/admin/pin.lsp", "PIN", active == "pin")
       .. '<a class="subnav-action" href="/admin/lock.lsp">Заблокировать</a>'
       .. "</nav>"

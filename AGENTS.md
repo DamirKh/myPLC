@@ -64,6 +64,12 @@ not the directory itself.
   1.2 s with a 0.4 s off gap. A frozen slot sequence is the visual hang indicator.
 - Never store MQTT passwords or Wi-Fi credentials in git. Wi-Fi credentials are
   device-only; the password must stay encrypted with a softTPM-derived key.
+- ESP-NOW uses a single receiver. The callback must only enqueue packets; parsing,
+  config writes and control work belong in the application loop.
+- Provisioned ESP-NOW nodes are identified by their MAC allowlist. The `PROV`
+  token is a matching aid, not authentication.
+- Do not let ESP-NOW data influence the pump until the DS18B20 packet format,
+  staleness checks and allowlist filtering are implemented and documented.
 - Admin pages and admin mutations stay under `/admin/` behind the 4-digit PIN
   session; public pages must not expose configuration changes.
 - Do not weaken the public/protected split without updating `docs/decisions.md`.

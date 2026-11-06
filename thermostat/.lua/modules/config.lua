@@ -75,6 +75,11 @@ local DEFAULTS = {
          max_bytes = 196608,
       },
    },
+   espnow = {
+      enabled = false,
+      provision_window_sec = 45,
+      nodes = {},
+   },
    ui = {
       public_setpoint = true,
       public_setpoint_min = 16.0,
@@ -334,6 +339,40 @@ function M.validate(cfg)
          if not is_number(item.max_bytes) or item.max_bytes < 4096 or item.max_bytes > 4194304 then
             errors[#errors + 1] = "history." .. stream .. ".max_bytes out of range"
          end
+      end
+   end
+
+   local espnow = cfg.espnow or {}
+   if "boolean" ~= type(espnow.enabled) then
+      errors[#errors + 1] = "espnow.enabled must be a boolean"
+   end
+   if not is_number(espnow.provision_window_sec) or espnow.provision_window_sec < 10
+      or espnow.provision_window_sec > 120 then
+      errors[#errors + 1] = "espnow.provision_window_sec out of range"
+   end
+   if "table" ~= type(espnow.nodes) then
+      errors[#errors + 1] = "espnow.nodes must be a table"
+   else
+      local node_count = 0
+      for mac, node in pairs(espnow.nodes) do
+         node_count = node_count + 1
+         local key = tostring(mac or ""):lower()
+         if 12 ~= #key or not key:match("^%x+$") then
+            errors[#errors + 1] = "espnow node key is invalid: " .. tostring(mac)
+         elseif "table" ~= type(node) then
+            errors[#errors + 1] = "espnow node " .. key .. " must be a table"
+         else
+            local node_mac = tostring(node.mac or ""):lower()
+            if node_mac ~= key then
+               errors[#errors + 1] = "espnow node " .. key .. " has mismatched mac"
+            end
+            if "string" ~= type(node.label) or #node.label > 64 then
+               errors[#errors + 1] = "espnow node " .. key .. " label is invalid"
+            end
+         end
+      end
+      if node_count > 64 then
+         errors[#errors + 1] = "espnow.nodes has too many entries"
       end
    end
 
