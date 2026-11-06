@@ -7,7 +7,8 @@ end
 local peer = request:peername()
 local server = request:sockname()
 local available = app.pin_available()
-local trusted = app.pin_trusted(peer, server)
+local st = app.get_state()
+local trusted = app.pin_setup_allowed(peer, server, st and st.wifi_mode)
 
 local message = nil
 local message_kind = "error"
@@ -54,8 +55,9 @@ end
 <p><a href="/">Назад к обзору</a></p>
 <?lsp elseif not trusted then ?>
 <section class="banner error">
-Создание PIN разрешено только с доверенной локальной сети. Подключитесь к AP
-`xedge32` или к той же подсети, что и контроллер, и обновите страницу.
+Создание PIN разрешено с доверенной локальной сети или в режиме AP `xedge32`.
+Подключитесь к AP `xedge32` либо к той же подсети, что и контроллер, и обновите
+страницу.
 </section>
 <p><a href="/">Назад к обзору</a></p>
 <?lsp else ?>

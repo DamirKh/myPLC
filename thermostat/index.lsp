@@ -571,6 +571,7 @@ async function refresh() {
       $('diagnostics').textContent = JSON.stringify({
          mode: s.mode, service_mode: s.service_mode, mqtt_enabled: s.mqtt_enabled,
          mqtt_connected: s.mqtt_connected, wifi: s.wifi, wifi_mode: s.wifi_mode,
+         espnow_available: s.espnow_available, espnow_api: s.espnow_api,
          led_tick: s.led_tick, pin_configured: s.pin_configured,
          pin_available: s.pin_available, override_active: s.override_active,
          override_until: s.override_until, base_target: s.base_target,

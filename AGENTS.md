@@ -3,8 +3,9 @@
 ## Project
 
 Xedge32 thermostat for a hydronic floor-heating pump. Lua application runs on
-ESP32-S3 (N16R8). See `docs/decisions.md` for the frozen decisions and
-`docs/hardware.md` for wiring and safety.
+ESP32-S3 (N16R8). Normative behavior lives in `docs/decisions.md`; wiring and
+safety — `docs/hardware.md`; operations — `docs/deployment.md`; debug journal —
+`docs/notes.md`.
 
 ## Build and test
 
@@ -13,13 +14,14 @@ make test       # pure Lua 5.4 unit tests
 make package    # build/thermostat.zip for Xedge32
 ```
 
-If `lua5.4` is not installed, the tests can be run with any Lua 5.4 interpreter.
-Do not add a dependency on a Lua package manager.
+If `lua5.4` is not installed, use any Lua 5.4 interpreter. Do not add a Lua
+package manager dependency.
 
 ## Deploy
 
-Upload `build/thermostat.zip` through Xedge32 **Firmware Update & App Upload**.
-The ZIP must contain the contents of `thermostat/`, not the directory itself.
+Upload `build/thermostat.zip` through Xedge32 **Firmware Update & App Upload**;
+see `docs/deployment.md`. The ZIP must contain the contents of `thermostat/`,
+not the directory itself.
 
 ## Code conventions
 
@@ -36,6 +38,16 @@ The ZIP must contain the contents of `thermostat/`, not the directory itself.
 - Use the CSS variables in `static/style.css` for all UI colors so light and dark
   themes stay consistent. New pages must load `/static/theme.js` in `<head>`.
 - Do not add comments unless they explain a non-obvious safety invariant.
+
+## Documentation authority
+
+- Normative behavior lives in `docs/decisions.md`. When changing behavior,
+  update it there; do not restate the same rules in `README.md`, `AGENTS.md` or
+  `docs/notes.md`.
+- `docs/notes.md` is a debug journal: problem, cause, fix, verification, and a
+  link to the relevant decision.
+- Keep safety invariants below in sync with `docs/decisions.md` and
+  `docs/hardware.md`.
 
 ## Safety invariants
 

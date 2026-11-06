@@ -99,4 +99,11 @@ function M.is_trusted(peer, server)
    return false
 end
 
+function M.setup_allowed(peer, server, wifi_mode)
+   if "ap" == tostring(wifi_mode or ""):lower() then
+      return true
+   end
+   return M.is_trusted(peer, server)
+end
+
 return M

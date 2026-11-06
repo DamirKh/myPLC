@@ -170,8 +170,13 @@ local function node_id()
    return "xedge32_thermostat"
 end
 
+local function espnow_available()
+   return "table" == type(esp32) and "function" == type(esp32.espnow)
+end
+
 local function build_state()
    local ready = config.control_ready(cfg)
+   local espnow_ok = espnow_available()
    local override_active = override ~= nil and override.expires ~= nil and override.expires > os.time()
    local override_after_target = nil
    if override_active then
@@ -227,6 +232,8 @@ local function build_state()
       wifi_ap_client_active = "ap" == wifi_mode and wifi_ap_client_seen ~= nil
          and (os.time() - wifi_ap_client_seen) < 30,
       wifi_last_error = wifi_last_error,
+      espnow_available = espnow_ok,
+      espnow_api = espnow_ok and "esp32.espnow" or nil,
       led_tick = led_tick,
       pin_configured = pin_is_configured(),
       pin_available = pin_key ~= nil,
@@ -617,6 +624,10 @@ end
 
 function pin_trusted(peer, server)
    return pin_mod.is_trusted(peer, server)
+end
+
+function pin_setup_allowed(peer, server, wifi_mode)
+   return pin_mod.setup_allowed(peer, server, wifi_mode)
 end
 
 function pin_check(pin)

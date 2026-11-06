@@ -37,4 +37,16 @@ return function(t)
       t.assert_true(pin.is_trusted("fd00:1234:5678:9abc::10", "fd00:1234:5678:9abc::1"))
       t.assert_false(pin.is_trusted("fd00:1234:5678:9abd::10", "fd00:1234:5678:9abc::1"))
    end)
+
+   t.test("PIN setup allows AP regardless of subnet", function()
+      t.assert_true(pin.setup_allowed("192.0.0.1", "192.168.190.0", "ap"))
+      t.assert_true(pin.setup_allowed("10.0.0.2", "192.168.43.44", "AP"))
+   end)
+
+   t.test("PIN setup keeps LAN check outside AP", function()
+      t.assert_true(pin.setup_allowed("192.168.43.10", "192.168.43.44", "sta"))
+      t.assert_false(pin.setup_allowed("192.0.0.1", "192.168.190.0", "sta"))
+      t.assert_false(pin.setup_allowed("192.0.0.1", "192.168.190.0", nil))
+      t.assert_true(pin.setup_allowed("127.0.0.1", "192.168.43.44", nil))
+   end)
 end
