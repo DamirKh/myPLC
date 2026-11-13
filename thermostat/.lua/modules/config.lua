@@ -78,6 +78,7 @@ local DEFAULTS = {
    espnow = {
       enabled = false,
       provision_window_sec = 45,
+      stale_after_sec = 360,
       nodes = {},
    },
    ui = {
@@ -139,6 +140,18 @@ end
 
 function M.valid_role(role)
    return "string" == type(role) and nil ~= M.ROLES[role]
+end
+
+function M.valid_sensor_bus(bus)
+   bus = tostring(bus or "")
+   if "diag" == bus or "control_a" == bus or "control_b" == bus then
+      return true
+   end
+   return bus:match("^espnow:%x%x%x%x%x%x%x%x%x%x%x%x$") ~= nil
+end
+
+function M.espnow_bus_mac(bus)
+   return tostring(bus or ""):match("^espnow:(%x%x%x%x%x%x%x%x%x%x%x%x)$")
 end
 
 local function valid_ipv4(host)
@@ -212,12 +225,16 @@ function M.count_role(cfg, bus, role)
 end
 
 function M.control_ready(cfg)
-   for _, bus in ipairs(CONTROL_BUSES) do
-      if M.count_role(cfg, bus, "room") >= 1 and M.count_role(cfg, bus, "floor") >= 1 then
-         return true, bus
+   local rooms = 0
+   local floors = 0
+   for _, sensor in pairs(cfg.sensors or {}) do
+      if "room" == sensor.role then
+         rooms = rooms + 1
+      elseif "floor" == sensor.role then
+         floors = floors + 1
       end
    end
-   return false, CONTROL_BUSES[1]
+   return rooms >= 1 and floors >= 1, "any"
 end
 
 function M.set_sensor(cfg, bus, rom, role, label, offset)
@@ -236,6 +253,18 @@ end
 function M.remove_sensor(cfg, bus, rom)
    cfg.sensors = cfg.sensors or {}
    cfg.sensors[M.sensor_key(bus, rom)] = nil
+end
+
+local function espnow_node_exists(espnow, mac)
+   if not espnow or not espnow.nodes or not mac then
+      return false
+   end
+   for key in pairs(espnow.nodes) do
+      if tostring(key):lower() == mac then
+         return true
+      end
+   end
+   return false
 end
 
 function M.validate(cfg)
@@ -350,6 +379,10 @@ function M.validate(cfg)
       or espnow.provision_window_sec > 120 then
       errors[#errors + 1] = "espnow.provision_window_sec out of range"
    end
+   if not is_number(espnow.stale_after_sec) or espnow.stale_after_sec < 300
+      or espnow.stale_after_sec > 3600 then
+      errors[#errors + 1] = "espnow.stale_after_sec out of range"
+   end
    if "table" ~= type(espnow.nodes) then
       errors[#errors + 1] = "espnow.nodes must be a table"
    else
@@ -416,10 +449,15 @@ function M.validate(cfg)
       else
          if not sensor.bus or not sensor.rom then
             errors[#errors + 1] = "sensor " .. key .. " missing bus/rom"
-         elseif "diag" ~= sensor.bus and "control_a" ~= sensor.bus and "control_b" ~= sensor.bus then
+         elseif not M.valid_sensor_bus(sensor.bus) then
             errors[#errors + 1] = "sensor " .. key .. " has invalid bus"
          elseif 16 ~= #tostring(sensor.rom):gsub("[^%x]", "") then
             errors[#errors + 1] = "sensor " .. key .. " has invalid ROM"
+         else
+            local bus_mac = M.espnow_bus_mac(sensor.bus)
+            if bus_mac and not espnow_node_exists(espnow, bus_mac) then
+               errors[#errors + 1] = "sensor " .. key .. " references unknown ESP-NOW node"
+            end
          end
          if not M.valid_role(sensor.role) then
             errors[#errors + 1] = "sensor " .. key .. " has invalid role"
@@ -431,15 +469,23 @@ function M.validate(cfg)
       end
    end
 
-   for _, bus in ipairs(CONTROL_BUSES) do
-      local rooms = M.count_role(cfg, bus, "room")
-      local floors = M.count_role(cfg, bus, "floor")
-      if (rooms > 0 or floors > 0) and (rooms == 0 or floors == 0) then
-         warnings[#warnings + 1] = bus .. " is not fully configured"
+   local rooms = 0
+   local floors = 0
+   for _, sensor in pairs(cfg.sensors or {}) do
+      if "room" == sensor.role then
+         rooms = rooms + 1
+      elseif "floor" == sensor.role then
+         floors = floors + 1
       end
    end
+   if rooms == 0 then
+      warnings[#warnings + 1] = "no room sensor configured"
+   end
+   if floors == 0 then
+      warnings[#warnings + 1] = "no floor sensor configured"
+   end
    if not M.control_ready(cfg) then
-      warnings[#warnings + 1] = "no complete control pair configured"
+      warnings[#warnings + 1] = "no complete room/floor pair configured"
    end
 
    return #errors == 0, errors, warnings

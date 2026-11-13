@@ -107,6 +107,30 @@ function M:record(bus, rom, data, err, now)
    end
 end
 
+function M:record_espnow(mac, rom, temp, status, now)
+   local bus = "espnow:" .. tostring(mac or ""):lower()
+   local key = sensor_key(bus, rom)
+   local sensor = self.cfg.sensors and self.cfg.sensors[key] or { offset = 0 }
+   local item = { key = key, sensor = sensor }
+   if 1 == status and "number" == type(temp) then
+      self:set_ok(item, { temp = temp, raw = temp * 16 }, now)
+      return
+   end
+   local err
+   if 0 == status then
+      err = "absent"
+   elseif 2 == status then
+      err = "missing"
+   elseif 3 == status then
+      err = "error"
+   elseif "number" ~= type(temp) then
+      err = "invalid_temperature"
+   else
+      err = "invalid_status"
+   end
+   self:set_failure(item, err, now)
+end
+
 function M:read_bus(name, roms, now)
    local bus, open_err = self:open_bus(name)
    if not bus then
@@ -263,6 +287,10 @@ function M:snapshot(now)
    }
 
    for key, sensor in pairs(cfg.sensors or {}) do
+      local stale_after = c.stale_after_sec or 20
+      if sensor.bus and sensor.bus:match("^espnow:") then
+         stale_after = (cfg.espnow and cfg.espnow.stale_after_sec) or 360
+      end
       local last = self.last[key]
       local item = {
          key = key,
@@ -277,7 +305,7 @@ function M:snapshot(now)
          stale = true,
          err = last and last.err or "not_read",
       }
-      if last and last.ok and last.ts and (now - last.ts) <= c.stale_after_sec then
+      if last and last.ok and last.ts and (now - last.ts) <= stale_after then
          item.ok = true
          item.stale = false
          item.err = nil

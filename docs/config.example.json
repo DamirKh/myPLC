@@ -65,6 +65,7 @@
   "espnow": {
     "enabled": false,
     "provision_window_sec": 45,
+    "stale_after_sec": 360,
     "nodes": {}
   },
   "ui": {

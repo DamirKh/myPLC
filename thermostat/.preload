@@ -147,6 +147,7 @@ local espnow_queue = {}
 local espnow_queue_max = 16
 local espnow_rx_mode = nil
 local espnow_last_error = nil
+local espnow_sensor_dirty = false
 local led_tick = 0
 local boot_until = os.time() + 2
 local time_valid = os.time() > 1600000000
@@ -240,6 +241,12 @@ function espnow_forget_node(mac)
    local key = espnow_mod.normalize_mac(mac)
    if not key then
       return false, "invalid MAC"
+   end
+   local bus = "espnow:" .. key
+   for _, sensor in pairs(cfg.sensors or {}) do
+      if sensor.bus == bus then
+         return false, "к узлу привязаны датчики; сначала снимите роли"
+      end
    end
    local newcfg = config.merge(cfg, {})
    if not espnow_mod.remove_node(newcfg, key) then
@@ -351,6 +358,32 @@ local function espnow_sync()
    end
 end
 
+local function espnow_apply_sensor_packet(packet)
+   local mac = packet and packet.mac
+   if not mac or not espnow_mod.find_node(cfg, mac) then
+      return false
+   end
+   local now = os.time()
+   local by_rom = {}
+   for _, sensor in ipairs(packet.sensors or {}) do
+      if sensor.configured and sensor.present then
+         by_rom[sensor.rom] = true
+         sensor_mgr:record_espnow(mac, sensor.rom, sensor.temp, sensor.status, now)
+      end
+   end
+   local bus = "espnow:" .. mac
+   for _, sensor in pairs(cfg.sensors or {}) do
+      if sensor.bus == bus then
+         local rom = tostring(sensor.rom):upper()
+         if not by_rom[rom] then
+            sensor_mgr:record_espnow(mac, rom, nil, 0, now)
+         end
+      end
+   end
+   espnow_sensor_dirty = true
+   return true
+end
+
 local function espnow_drain()
    while #espnow_queue > 0 do
       local item = table.remove(espnow_queue, 1)
@@ -369,6 +402,8 @@ local function espnow_drain()
                espnow_last_error = tostring(err)
             end
          end
+      elseif "sensor" == kind and parsed then
+         espnow_apply_sensor_packet(parsed)
       end
    end
 end
@@ -474,6 +509,30 @@ function espnow_disable()
    return ok, err
 end
 
+function espnow_enable()
+   if not espnow_available() then
+      return false, "ESP-NOW API недоступен"
+   end
+   if not espnow_wifi_ready() then
+      return false, "Wi-Fi не подключён"
+   end
+   local was_enabled = cfg.espnow and cfg.espnow.enabled and true or false
+   if not was_enabled then
+      local ok, err = espnow_save_enabled(true)
+      if not ok then
+         return false, err
+      end
+   end
+   local ok, err = espnow_open_rx()
+   if not ok then
+      if not was_enabled then
+         espnow_save_enabled(false)
+      end
+      return false, err
+   end
+   return true
+end
+
 function espnow_status()
    local p = espnow_runtime.provision
    local remaining = 0
@@ -526,9 +585,11 @@ local function build_state()
       provision_remaining = math.max(0, math.ceil((espnow_runtime.provision.until_ms - ba.clock()) / 1000))
    end
    local espnow_count = 0
+   local espnow_sensor_count = 0
    for _, node in ipairs(espnow_mod.nodes(espnow_runtime, cfg.espnow and cfg.espnow.nodes)) do
       if node.known then
          espnow_count = espnow_count + 1
+         espnow_sensor_count = espnow_sensor_count + #(node.sensors or {})
       end
    end
    local override_active = override ~= nil and override.expires ~= nil and override.expires > os.time()
@@ -595,6 +656,7 @@ local function build_state()
       espnow_channel = espnow_channel,
       espnow_drops = espnow_drops,
       espnow_nodes = espnow_count,
+      espnow_sensors = espnow_sensor_count,
       espnow_last_error = espnow_last_error,
       led_tick = led_tick,
       pin_configured = pin_is_configured(),
@@ -1140,7 +1202,6 @@ end
 
 function get_sensor_table()
    local now = os.time()
-   local stale_after = cfg.control.stale_after_sec or 20
    local names = { "diag", "control_a", "control_b" }
    local buses = {}
    local by_name = {}
@@ -1148,6 +1209,28 @@ function get_sensor_table()
       local entry = { name = name, pin = cfg.pins[name], sensors = {} }
       buses[#buses + 1] = entry
       by_name[name] = entry
+   end
+   local function ensure_espnow_bus(mac)
+      mac = espnow_mod.normalize_mac(mac)
+      if not mac then
+         return nil
+      end
+      local name = "espnow:" .. mac
+      local entry = by_name[name]
+      if not entry then
+         entry = { name = name, pin = "ESP-NOW", espnow = true, mac = mac, sensors = {} }
+         buses[#buses + 1] = entry
+         by_name[name] = entry
+      end
+      return entry
+   end
+   for mac in pairs(cfg.espnow and cfg.espnow.nodes or {}) do
+      ensure_espnow_bus(mac)
+   end
+   for mac, live in pairs(espnow_runtime.nodes or {}) do
+      if next(live.sensors or {}) then
+         ensure_espnow_bus(mac)
+      end
    end
 
    local seen = {}
@@ -1165,16 +1248,23 @@ function get_sensor_table()
 
       local sensor = cfg.sensors and cfg.sensors[key]
       local last = sensor_mgr.last[key]
-      local discovered = sensor_mgr.discovered[bus]
+      local is_espnow = entry.espnow == true
       local present = nil
-      if discovered then
-         present = false
-         for _, found in ipairs(discovered) do
-            if tostring(found):upper() == rom then
-               present = true
-               break
+      if not is_espnow then
+         local discovered = sensor_mgr.discovered[bus]
+         if discovered then
+            present = false
+            for _, found in ipairs(discovered) do
+               if tostring(found):upper() == rom then
+                  present = true
+                  break
+               end
             end
          end
+      end
+      local stale_after = cfg.control.stale_after_sec or 20
+      if is_espnow then
+         stale_after = (cfg.espnow and cfg.espnow.stale_after_sec) or 360
       end
 
       local item = {
@@ -1212,6 +1302,12 @@ function get_sensor_table()
    end
    for _, sensor in pairs(cfg.sensors or {}) do
       add(sensor.bus, sensor.rom)
+   end
+   for mac, live in pairs(espnow_runtime.nodes or {}) do
+      local bus = "espnow:" .. mac
+      for rom in pairs(live.sensors or {}) do
+         add(bus, rom)
+      end
    end
 
    local max_delta = nil
@@ -1388,7 +1484,7 @@ function assign_sensor(bus, rom, role, label, offset)
    if not config.valid_role(role) then
       return false, "invalid role"
    end
-   if "diag" ~= bus and "control_a" ~= bus and "control_b" ~= bus then
+   if not config.valid_sensor_bus(bus) then
       return false, "invalid bus"
    end
    local newcfg = config.merge(cfg, {})
@@ -1442,7 +1538,7 @@ function update_sensors(rows)
       if not bus or not rom then
          return false, "invalid sensor"
       end
-      if "diag" ~= bus and "control_a" ~= bus and "control_b" ~= bus then
+      if not config.valid_sensor_bus(bus) then
          return false, "invalid bus"
       end
       rom = tostring(rom):upper()
@@ -1967,6 +2063,12 @@ local function control_loop()
             scan_job_timer = nil
          end
          scan_result = { buses = {}, errors = { "Сканирование не завершилось за 20 секунд." } }
+      end
+      if espnow_sensor_dirty then
+         espnow_sensor_dirty = false
+         local now = os.time()
+         snapshot = sensor_mgr:snapshot(now)
+         live_buf:record(snapshot, now)
       end
       espnow_sync()
       apply_control()

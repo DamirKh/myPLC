@@ -76,4 +76,44 @@ return function(t)
       t.assert_eq(snap.actual.supply, nil)
       t.assert_eq(snap.actual.return_temp, nil)
    end)
+
+   t.test("ESP-NOW readings join the common snapshot", function()
+      local cfg = config.defaults()
+      cfg.espnow.nodes["3c8427ca2754"] = { mac = "3c8427ca2754", label = "" }
+      config.set_sensor(cfg, "control_a", "28AABBCCDDEEFF00", "room", "", 0)
+      config.set_sensor(cfg, "espnow:3c8427ca2754", "28AABBCCDDEEFF01", "floor", "", 0)
+      local manager = sensor_manager.new(cfg)
+      local now = 1000
+      manager:record_espnow("3c8427ca2754", "28AABBCCDDEEFF01", 25.5, 1, now)
+      manager.last["control_a:28AABBCCDDEEFF00"] = { ok = true, temp = 20, ts = now }
+      local snap = manager:snapshot(now)
+      t.assert_near(snap.actual.room, 20, 0.0001)
+      t.assert_near(snap.actual.floor, 25.5, 0.0001)
+      t.assert_eq(#snap.diagnostics, 2)
+   end)
+
+   t.test("ESP-NOW status failures exclude sensors", function()
+      local cfg = config.defaults()
+      cfg.espnow.nodes["3c8427ca2754"] = { mac = "3c8427ca2754", label = "" }
+      config.set_sensor(cfg, "espnow:3c8427ca2754", "28AABBCCDDEEFF01", "floor", "", 0)
+      local manager = sensor_manager.new(cfg)
+      local now = 1000
+      manager:record_espnow("3c8427ca2754", "28AABBCCDDEEFF01", nil, 2, now)
+      local snap = manager:snapshot(now)
+      t.assert_eq(snap.actual.floor, nil)
+      t.assert_eq(snap.diagnostics[1].err, "missing")
+      manager:record_espnow("3c8427ca2754", "28AABBCCDDEEFF01", 25.5, 1, now + 1)
+      snap = manager:snapshot(now + 1)
+      t.assert_near(snap.actual.floor, 25.5, 0.0001)
+   end)
+
+   t.test("ESP-NOW sensors use the longer stale timeout", function()
+      local cfg = config.defaults()
+      cfg.espnow.nodes["3c8427ca2754"] = { mac = "3c8427ca2754", label = "" }
+      config.set_sensor(cfg, "espnow:3c8427ca2754", "28AABBCCDDEEFF01", "floor", "", 0)
+      local manager = sensor_manager.new(cfg)
+      manager:record_espnow("3c8427ca2754", "28AABBCCDDEEFF01", 25.5, 1, 1000)
+      t.assert_near(manager:snapshot(1300).actual.floor, 25.5, 0.0001)
+      t.assert_eq(manager:snapshot(1361).actual.floor, nil)
+   end)
 end

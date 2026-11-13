@@ -4,6 +4,20 @@ local function bytes(...)
    return string.char(...)
 end
 
+local function from_hex(text)
+   local hex = tostring(text):gsub("%s+", "")
+   return (hex:gsub("%x%x", function(cc)
+      return string.char(tonumber(cc, 16))
+   end))
+end
+
+local V2_HEX = "584e5731020002000500000078563412"
+   .. "102700002c0d00800100000028ff641e"
+   .. "5b16040d78010100283c2a1122334455"
+   .. "5eff0100000000000000000000000000"
+   .. "00000000000000000000000000000000"
+   .. "00000000000000000000000000000000"
+
 return function(t)
    t.test("ESP-NOW MAC helpers", function()
       local mac = bytes(0x3c, 0x84, 0x27, 0xca, 0x27, 0x54)
@@ -104,5 +118,61 @@ return function(t)
       t.assert_eq(cfg.espnow.nodes["3c8427ca2754"].label, "sensor")
       t.assert_true(espnow.remove_node(cfg, "3c8427ca2754"))
       t.assert_false(cfg.espnow.nodes["3c8427ca2754"])
+   end)
+
+   t.test("ESP-NOW XNW1 v2 packet example", function()
+      local packet, err = espnow.parse_xnw1_v2(from_hex(V2_HEX), bytes(1, 2, 3, 4, 5, 6))
+      t.assert_true(packet, err)
+      t.assert_eq(packet.flags, 0)
+      t.assert_eq(packet.slot_count, 2)
+      t.assert_eq(packet.seq, 5)
+      t.assert_eq(packet.boot_id, 0x12345678)
+      t.assert_eq(packet.awake_ms, 10000)
+      t.assert_eq(packet.battery_mv, 3372)
+      t.assert_eq(packet.chip_temp, -32768)
+      t.assert_eq(packet.reset_reason, 1)
+      t.assert_eq(packet.wake_cause, 0)
+      t.assert_eq(#packet.sensors, 5)
+      t.assert_eq(packet.sensors[1].rom, "28FF641E5B16040D")
+      t.assert_near(packet.sensors[1].temp, 23.5, 0.0001)
+      t.assert_eq(packet.sensors[1].status_name, "OK")
+      t.assert_eq(packet.sensors[2].rom, "283C2A1122334455")
+      t.assert_near(packet.sensors[2].temp, -10.125, 0.0001)
+      t.assert_false(packet.sensors[3].present)
+   end)
+
+   t.test("ESP-NOW XNW1 v2 rejects wrong size and version", function()
+      local packet = from_hex(V2_HEX)
+      t.assert_false(espnow.parse_xnw1_v2(packet:sub(1, 95)))
+      t.assert_false(espnow.parse_xnw1_v2(packet .. "\0"))
+      local bad_version = packet:sub(1, 4) .. bytes(3) .. packet:sub(6)
+      t.assert_false(espnow.parse_xnw1_v2(bad_version))
+      local bad_slots = packet:sub(1, 6) .. bytes(6) .. packet:sub(8)
+      t.assert_false(espnow.parse_xnw1_v2(bad_slots))
+   end)
+
+   t.test("ESP-NOW XNW1 v2 deduplicates by boot_id and seq", function()
+      local runtime = espnow.new_runtime()
+      local src = bytes(1, 2, 3, 4, 5, 6)
+      local packet = from_hex(V2_HEX)
+      local kind = espnow.note_packet(runtime, packet, src, {rssi = -40, channel = 6}, 1000, nil)
+      t.assert_eq(kind, "sensor")
+      local node = runtime.nodes["010203040506"]
+      t.assert_eq(node.boot_id, 0x12345678)
+      t.assert_eq(node.last_seq, 5)
+      t.assert_eq(node.battery_mv, 3372)
+      t.assert_eq(node.slot_count, 2)
+      t.assert_true(node.sensors["28FF641E5B16040D"])
+      t.assert_near(node.sensors["28FF641E5B16040D"].temp, 23.5, 0.0001)
+      kind = espnow.note_packet(runtime, packet, src, {rssi = -41, channel = 6}, 1010, nil)
+      t.assert_eq(kind, "duplicate")
+      t.assert_eq(node.duplicates, 1)
+      local next_packet = packet:sub(1, 8) .. bytes(6, 0, 0, 0) .. packet:sub(13)
+      kind = espnow.note_packet(runtime, next_packet, src, {rssi = -42, channel = 6}, 1020, nil)
+      t.assert_eq(kind, "sensor")
+      t.assert_eq(node.last_seq, 6)
+      local new_boot = packet:sub(1, 12) .. bytes(0x99, 0x88, 0x77, 0x66) .. packet:sub(17)
+      kind = espnow.note_packet(runtime, new_boot, src, {rssi = -43, channel = 6}, 1030, nil)
+      t.assert_eq(kind, "sensor")
    end)
 end

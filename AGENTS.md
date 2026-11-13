@@ -68,8 +68,9 @@ not the directory itself.
   config writes and control work belong in the application loop.
 - Provisioned ESP-NOW nodes are identified by their MAC allowlist. The `PROV`
   token is a matching aid, not authentication.
-- Do not let ESP-NOW data influence the pump until the DS18B20 packet format,
-  staleness checks and allowlist filtering are implemented and documented.
+- ESP-NOW sensor data may influence the pump only after MAC allowlist, XNW1 v2
+  length/version checks, per-slot status handling and the ESP-NOW staleness
+  timeout. Never treat unauthenticated packets as trusted commands.
 - Admin pages and admin mutations stay under `/admin/` behind the 4-digit PIN
   session; public pages must not expose configuration changes.
 - Do not weaken the public/protected split without updating `docs/decisions.md`.

@@ -163,6 +163,16 @@ local function status_text(item)
       return "нет данных"
    elseif "no presence" == err then
       return "нет связи"
+   elseif "missing" == err then
+      return "не найден"
+   elseif "error" == err then
+      return "ошибка"
+   elseif "absent" == err then
+      return "нет в пакете"
+   elseif "invalid_temperature" == err then
+      return "нет температуры"
+   elseif "invalid_status" == err then
+      return "неизвестный статус"
    elseif "CRC error" == err then
       return "ошибка CRC"
    elseif "timeout" == err then
@@ -264,7 +274,8 @@ local function table_html(oob)
    local index = 0
    for _, bus in ipairs(sensor_table.buses or {}) do
       out[#out + 1] = '<tbody><tr class="bus-row"><th colspan="6">Шина <code>' .. esc(bus.name)
-         .. "</code> · GPIO " .. esc(bus.pin) .. " · датчиков: " .. tostring(#(bus.sensors or {})) .. "</th></tr>"
+         .. "</code> · " .. (bus.espnow and ("ESP-NOW " .. esc(bus.mac)) or ("GPIO " .. esc(bus.pin)))
+         .. " · датчиков: " .. tostring(#(bus.sensors or {})) .. "</th></tr>"
       if 0 == #(bus.sensors or {}) then
          out[#out + 1] = '<tr><td colspan="6" class="muted">Датчики не найдены</td></tr>'
       end

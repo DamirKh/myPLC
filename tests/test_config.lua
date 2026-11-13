@@ -197,4 +197,38 @@ return function(t)
       cfg.espnow.provision_window_sec = 121
       t.assert_false(config.validate(cfg))
    end)
+
+   t.test("ESP-NOW sensor buses require an allowlisted node", function()
+      local cfg = config.defaults()
+      local bus = "espnow:3c8427ca2754"
+      config.set_sensor(cfg, bus, "28AABBCCDDEEFF00", "room", "", 0)
+      t.assert_false(config.validate(cfg))
+      cfg.espnow.nodes["3c8427ca2754"] = { mac = "3c8427ca2754", label = "" }
+      local ok, errors = config.validate(cfg)
+      t.assert_true(ok, table.concat(errors or {}, ", "))
+      t.assert_true(config.valid_sensor_bus(bus))
+      t.assert_false(config.valid_sensor_bus("espnow:bad"))
+   end)
+
+   t.test("control ready allows mixed sensor sources", function()
+      local cfg = config.defaults()
+      config.set_sensor(cfg, "control_a", "28AABBCCDDEEFF00", "room", "", 0)
+      config.set_sensor(cfg, "espnow:3c8427ca2754", "28AABBCCDDEEFF01", "floor", "", 0)
+      cfg.espnow.nodes["3c8427ca2754"] = { mac = "3c8427ca2754", label = "" }
+      t.assert_true(config.control_ready(cfg))
+      t.assert_true(config.validate(cfg))
+
+      cfg = config.defaults()
+      config.set_sensor(cfg, "control_a", "28AABBCCDDEEFF00", "room", "", 0)
+      t.assert_false(config.control_ready(cfg))
+   end)
+
+   t.test("ESP-NOW stale timeout is bounded", function()
+      local cfg = config.defaults()
+      t.assert_eq(cfg.espnow.stale_after_sec, 360)
+      cfg.espnow.stale_after_sec = 100
+      t.assert_false(config.validate(cfg))
+      cfg.espnow.stale_after_sec = 3601
+      t.assert_false(config.validate(cfg))
+   end)
 end

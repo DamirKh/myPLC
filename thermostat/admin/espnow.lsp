@@ -56,6 +56,14 @@ if "POST" == request:method() and csrf_ok then
          message = "Ошибка: " .. error_text(err)
          message_kind = "error"
       end
+   elseif "enable" == action then
+      local ok, err = app.espnow_enable()
+      if ok then
+         message = "Приёмник ESP-NOW включён."
+      else
+         message = "Ошибка: " .. error_text(err)
+         message_kind = "error"
+      end
    elseif "forget" == action then
       local ok, err = app.espnow_forget_node(request:data("mac"))
       if ok then
@@ -96,6 +104,7 @@ end
 
 local function status_html(oob)
    local st = app.espnow_status()
+   local has_nodes = #(st.nodes or {}) > 0
    local attr = oob and ' hx-swap-oob="true"' or ""
    local poll_interval = st.provision_active and "1s" or (st.open and "3s" or "10s")
    local out = {
@@ -139,13 +148,23 @@ local function status_html(oob)
             .. '<input type="hidden" name="action" value="start">'
             .. '<button type="submit"' .. disabled .. '>Начать провижининг</button></form>'
       end
-      if st.open or st.enabled then
+      if st.open then
+         local confirm = has_nodes
+            and "Выключить приёмник ESP-NOW? Узлы получат link-layer ACK и не узнают о потере данных. Датчики станут stale, насос может выключиться."
+            or "Выключить приёмник ESP-NOW?"
          out[#out + 1] = '<form method="post" class="inline" action="/admin/espnow.lsp?fragment=status"'
             .. ' hx-post="/admin/espnow.lsp?fragment=status" hx-target="#espnow-status" hx-swap="outerHTML"'
-            .. ' hx-confirm="Выключить приёмник ESP-NOW?">'
+            .. ' hx-confirm="' .. esc(confirm) .. '">'
             .. '<input type="hidden" name="csrf" value="' .. esc(app.csrf_token()) .. '">'
             .. '<input type="hidden" name="action" value="disable">'
             .. '<button type="submit" class="secondary">Выключить приёмник</button></form>'
+      else
+         local disabled = st.ready and "" or " disabled"
+         out[#out + 1] = '<form method="post" class="inline" action="/admin/espnow.lsp?fragment=status"'
+            .. ' hx-post="/admin/espnow.lsp?fragment=status" hx-target="#espnow-status" hx-swap="outerHTML">'
+            .. '<input type="hidden" name="csrf" value="' .. esc(app.csrf_token()) .. '">'
+            .. '<input type="hidden" name="action" value="enable">'
+            .. '<button type="submit"' .. disabled .. '>Включить приёмник</button></form>'
       end
       out[#out + 1] = "</div>"
    end
@@ -157,19 +176,33 @@ local function status_html(oob)
    else
       out[#out + 1] = '<div class="table-wrap"><table>'
       out[#out + 1] = "<thead><tr><th>MAC</th><th>Метка</th><th>RSSI</th><th>Канал</th>"
-         .. "<th>Последний пакет</th><th>Пакетов</th><th>POK</th><th>XNW1</th><th>Allowlist</th><th></th></tr></thead><tbody>"
+         .. "<th>Последний пакет</th><th>Батарея</th><th>Флаги</th><th>Датчики</th>"
+         .. "<th>Allowlist</th><th></th></tr></thead><tbody>"
       local now = os.time()
       for _, node in ipairs(nodes) do
          local age = node.last_seen and (now - node.last_seen) or nil
          local seen = age and (tostring(age) .. " с назад") or "—"
          local packet = node.last_magic and (esc(node.last_magic) .. " / " .. tostring(node.last_len or 0) .. " Б") or "—"
-         local xnw1 = node.xnw1_seq and ("seq " .. tostring(node.xnw1_seq)) or "—"
+         local battery = "—"
+         if node.battery_mv and node.battery_mv > 0 then
+            battery = tostring(node.battery_mv) .. " mV"
+            if node.low_batt then
+               battery = battery .. " (низкая)"
+            end
+         end
+         local flags = {}
+         if node.setup then flags[#flags + 1] = "SETUP" end
+         if node.fault then flags[#flags + 1] = "FAULT" end
+         if node.low_batt then flags[#flags + 1] = "LOW_BATT" end
+         if node.cold_boot then flags[#flags + 1] = "COLD_BOOT" end
+         local flag_text = #flags > 0 and table.concat(flags, " ") or "—"
+         local sensors = node.sensors or {}
          out[#out + 1] = "<tr><td><code>" .. esc(node.mac_text or node.mac) .. "</code></td><td>"
             .. esc(node.label or "") .. "</td><td>"
             .. (node.last_rssi and (tostring(node.last_rssi) .. " dBm") or "—") .. "</td><td>"
-            .. esc(node.channel or "—") .. "</td><td>" .. seen .. "</td><td>"
-            .. tostring(node.packets or 0) .. "</td><td>" .. (node.pok and "да" or "нет")
-            .. "</td><td>" .. esc(xnw1) .. "</td><td>" .. (node.known and "да" or "нет") .. "</td><td>"
+            .. esc(node.channel or "—") .. "</td><td>" .. seen .. " / " .. packet .. "</td><td>"
+            .. esc(battery) .. "</td><td>" .. esc(flag_text) .. "</td><td>"
+            .. tostring(#sensors) .. "</td><td>" .. (node.known and "да" or "нет") .. "</td><td>"
          if node.known then
             out[#out + 1] = '<form method="post" class="inline" action="/admin/espnow.lsp?fragment=status"'
                .. ' hx-post="/admin/espnow.lsp?fragment=status" hx-target="#espnow-status" hx-swap="outerHTML"'
@@ -177,9 +210,26 @@ local function status_html(oob)
                .. '<input type="hidden" name="csrf" value="' .. esc(app.csrf_token()) .. '">'
                .. '<input type="hidden" name="action" value="forget">'
                .. '<input type="hidden" name="mac" value="' .. esc(node.mac) .. '">'
-               .. '<button type="submit" class="secondary">Забыть</button></form>'
+               .. '<button type="submit" class="secondary">Забыть</button></form> '
+         end
+         if node.known then
+            out[#out + 1] = '<a href="/admin/sensors.lsp">Настроить</a>'
          end
          out[#out + 1] = "</td></tr>"
+         if #sensors > 0 then
+            out[#out + 1] = '<tr><td colspan="10"><div class="table-wrap"><table>'
+               .. "<thead><tr><th>ROM</th><th>Температура</th><th>Статус</th><th>Seq</th></tr></thead><tbody>"
+            for _, sensor in ipairs(sensors) do
+               local temp = "—"
+               if "number" == type(sensor.temp) then
+                  temp = string.format("%.2f °C", sensor.temp)
+               end
+               out[#out + 1] = "<tr><td><code>" .. esc(sensor.rom) .. "</code></td><td>"
+                  .. esc(temp) .. "</td><td>" .. esc(sensor.status_name or sensor.status) .. "</td><td>"
+                  .. esc(node.last_seq or "—") .. "</td></tr>"
+            end
+            out[#out + 1] = "</tbody></table></div></td></tr>"
+         end
       end
       out[#out + 1] = "</tbody></table></div>"
    end
@@ -197,7 +247,8 @@ local function instructions_html()
     <li>После <code>POK</code> MAC узла сохраняется в конфигурации; приёмник остаётся включённым.</li>
   </ol>
   <p class="muted">В STA канал следует за точкой доступа; в AP используется канал 1. При смене канала узлы могут потерять связь. Token — только признак совпадения, не аутентификация; допуск узлов задаётся allowlist MAC.</p>
-  <p class="muted">Передача DS18B20-температур по ESP-NOW будет отдельным этапом.</p>
+  <p class="banner">Выключение приёмника не останавливает узлы: они получают link-layer ACK и не узнают, что данные потеряны. Контроллер перестанет обновлять показания, и насос выключится по stale timeout.</p>
+  <p class="muted">После провижининга назначьте роли датчикам на странице <a href="/admin/sensors.lsp">Сервис → Датчики</a> в сервисном режиме. ESP-NOW-датчики участвуют в управлении насосом наравне с проводными.</p>
 </section>
 ]]
 end
